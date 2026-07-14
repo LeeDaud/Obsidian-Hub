@@ -18,6 +18,8 @@ import { AddVaultDialog } from '../components/AddVaultDialog';
 import { BackgroundLayer } from '../components/BackgroundLayer';
 import { DailyClosing, GreetingHeader } from '../components/GreetingHeader';
 import { LibraryOverview } from '../components/LibraryOverview';
+import { DailyPoster } from '../components/DailyPoster';
+import { QuickActionDock } from '../components/QuickActionDock';
 import { matchesVault, sortVaults } from '../features/vaults/vaultSelectors';
 import '../styles/app.css';
 
@@ -292,6 +294,21 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
     }
   }
 
+  function pickRandomVault() {
+    if (!visibleVaults.length) return;
+    const candidates = visibleVaults.filter((vault) => vault.id !== selectedId);
+    const pool = candidates.length ? candidates : visibleVaults;
+    const picked = pool[Math.floor(Math.random() * pool.length)];
+    setSelectedId(picked.id);
+    setStatus(`已为你选中 ${picked.name}`);
+    const element = document.querySelector<HTMLElement>(`[data-vault-id="${picked.id}"]`);
+    if (typeof element?.scrollIntoView === 'function') {
+      element.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  const selectedVault = visibleVaults.find((vault) => vault.id === selectedId) ?? null;
+
   return (
     <main className="app-shell">
       <BackgroundLayer />
@@ -340,12 +357,15 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
             <div className="launcher-main-column">
               {!query ? <GreetingHeader /> : null}
               {!query ? (
-                <LibraryOverview
-                  overview={overview}
-                  refreshing={overviewRefreshing}
-                  error={overviewError}
-                  onRefresh={() => void refreshOverview()}
-                />
+                <div className="overview-composition">
+                  <LibraryOverview
+                    overview={overview}
+                    refreshing={overviewRefreshing}
+                    error={overviewError}
+                    onRefresh={() => void refreshOverview()}
+                  />
+                  <DailyPoster overview={overview} />
+                </div>
               ) : null}
               <VaultSection
                 title={query ? '搜索结果' : '所有仓库'}
@@ -358,6 +378,21 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
                 onRepair={(vault) => void repairVault(vault)}
                 onRemove={(vault) => void removeVault(vault)}
               />
+              {!query ? (
+                <QuickActionDock
+                  canOpen={Boolean(
+                    selectedVault && selectedVault.pathStatus === 'valid' && !openingId,
+                  )}
+                  canPickRandom={visibleVaults.length > 0}
+                  refreshing={overviewRefreshing}
+                  onAdd={() => setShowAddDialog(true)}
+                  onRefresh={() => void refreshOverview()}
+                  onPickRandom={pickRandomVault}
+                  onOpenSelected={() => {
+                    if (selectedVault) void launchVault(selectedVault);
+                  }}
+                />
+              ) : null}
               {!query ? <DailyClosing /> : null}
             </div>
           </div>

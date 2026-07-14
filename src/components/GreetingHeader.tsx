@@ -60,6 +60,14 @@ export function GreetingHeader() {
     minute: '2-digit',
     hour12: false,
   }).format(now);
+  const monday = new Date(now);
+  const weekdayIndex = (now.getDay() + 6) % 7;
+  monday.setDate(now.getDate() - weekdayIndex);
+  const week = Array.from({ length: 7 }, (_, index) => {
+    const value = new Date(monday);
+    value.setDate(monday.getDate() + index);
+    return value;
+  });
 
   return (
     <header className="greeting-header">
@@ -74,6 +82,14 @@ export function GreetingHeader() {
           {time}
         </strong>
         <span>{date}</span>
+        <div className="week-strip" aria-label="本周日期">
+          {week.map((value, index) => (
+            <span key={value.toISOString()} className={index === weekdayIndex ? 'is-today' : ''}>
+              <small>{'一二三四五六日'[index]}</small>
+              <b>{value.getDate()}</b>
+            </span>
+          ))}
+        </div>
       </div>
     </header>
   );

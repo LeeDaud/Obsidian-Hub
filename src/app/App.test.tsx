@@ -91,4 +91,18 @@ describe('App', () => {
       ),
     );
   });
+
+  it('offers real quick actions without opening a random vault automatically', async () => {
+    const user = userEvent.setup();
+    const gateway = createGateway();
+    render(<App gateway={gateway} />);
+
+    await screen.findByText('TODAY · SPACES');
+    await user.click(screen.getByRole('button', { name: /随便看看/ }));
+    expect(gateway.launch).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(gateway.validateDirectory).toHaveBeenCalled());
+    await user.click(screen.getByRole('button', { name: /打开所选/ }));
+    await waitFor(() => expect(gateway.launch).toHaveBeenCalledTimes(1));
+  });
 });
