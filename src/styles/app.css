@@ -644,7 +644,10 @@ button:disabled {
   flex: 1;
   overflow-y: auto;
   padding: 16px max(18px, calc((100vw - 980px) / 2));
-  scrollbar-gutter: stable;
+  scrollbar-width: none;
+}
+.vault-content::-webkit-scrollbar {
+  display: none;
 }
 .vault-section + .vault-section {
   margin-top: 18px;
