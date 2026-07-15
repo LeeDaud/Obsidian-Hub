@@ -1,4 +1,4 @@
-use std::{fs, path::Path, time::UNIX_EPOCH};
+use std::{collections::HashMap, fs, path::Path, time::UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -26,6 +26,13 @@ pub struct IndexedNote {
     pub tags: Vec<String>,
     pub modified_at: u64,
     pub size: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum BrowseItem {
+    Folder { name: String, path: String },
+    Note { note: IndexedNote },
 }
 
 fn frontmatter_values(contents: &str, key: &str) -> Vec<String> {
@@ -188,9 +195,88 @@ pub fn search(
         .collect()
 }
 
+pub fn browse(
+    notes: &[IndexedNote],
+    vault_id: &str,
+    directory: &str,
+    query: &str,
+    limit: usize,
+) -> (Vec<BrowseItem>, usize) {
+    let directory = directory.trim_matches('/');
+    let prefix = if directory.is_empty() {
+        String::new()
+    } else {
+        format!("{directory}/")
+    };
+    let query = query.trim().to_lowercase();
+    let mut items = if query.is_empty() {
+        let mut folders: HashMap<String, (String, String)> = HashMap::new();
+        let mut files = Vec::new();
+        for note in notes.iter().filter(|note| note.vault_id == vault_id) {
+            let Some(remainder) = note.relative_path.strip_prefix(&prefix) else {
+                continue;
+            };
+            if let Some((folder, _)) = remainder.split_once('/') {
+                let path = if directory.is_empty() {
+                    folder.to_owned()
+                } else {
+                    format!("{directory}/{folder}")
+                };
+                folders
+                    .entry(folder.to_lowercase())
+                    .or_insert_with(|| (folder.to_owned(), path));
+            } else {
+                files.push(BrowseItem::Note { note: note.clone() });
+            }
+        }
+        let mut folders: Vec<_> = folders
+            .into_values()
+            .map(|(name, path)| BrowseItem::Folder { name, path })
+            .collect();
+        folders.sort_by_key(|item| match item {
+            BrowseItem::Folder { name, .. } => name.to_lowercase(),
+            BrowseItem::Note { .. } => String::new(),
+        });
+        files.sort_by_key(|item| match item {
+            BrowseItem::Note { note } => note.title.to_lowercase(),
+            BrowseItem::Folder { .. } => String::new(),
+        });
+        folders.extend(files);
+        folders
+    } else {
+        let terms: Vec<_> = query.split_whitespace().collect();
+        let mut files: Vec<_> = notes
+            .iter()
+            .filter(|note| note.vault_id == vault_id)
+            .filter(|note| note.relative_path.starts_with(&prefix))
+            .filter(|note| {
+                let haystack = format!(
+                    "{} {} {} {}",
+                    note.file_name,
+                    note.title,
+                    note.relative_path,
+                    note.aliases.join(" ")
+                )
+                .to_lowercase();
+                terms.iter().all(|term| haystack.contains(term))
+            })
+            .cloned()
+            .map(|note| BrowseItem::Note { note })
+            .collect();
+        files.sort_by_key(|item| match item {
+            BrowseItem::Note { note } => note.title.to_lowercase(),
+            BrowseItem::Folder { .. } => String::new(),
+        });
+        files
+    };
+    let total = items.len();
+    items.truncate(limit.max(1).min(5_000));
+    (items, total)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{IndexedNote, search};
+    use super::{BrowseItem, IndexedNote, browse, search};
     #[test]
     fn title_match_ranks_before_path_match() {
         let note = |title: &str, path: &str| IndexedNote {
@@ -213,5 +299,35 @@ mod tests {
             20,
         );
         assert_eq!(result[0].title, "TCP");
+    }
+
+    #[test]
+    fn browse_returns_direct_children_and_recursively_filters_current_folder() {
+        let note = |title: &str, path: &str| IndexedNote {
+            id: path.into(),
+            vault_id: "v".into(),
+            vault_name: "V".into(),
+            relative_path: path.into(),
+            file_name: path.rsplit('/').next().unwrap_or(path).into(),
+            title: title.into(),
+            aliases: vec![],
+            tags: vec![],
+            modified_at: 0,
+            size: 0,
+        };
+        let notes = [
+            note("Root", "Root.md"),
+            note("TCP", "Network/TCP.md"),
+            note("HTTP", "Network/Web/HTTP.md"),
+        ];
+        let (root, total) = browse(&notes, "v", "", "", 20);
+        assert_eq!(total, 2);
+        assert!(matches!(&root[0], BrowseItem::Folder { name, .. } if name == "Network"));
+        let (filtered, total) = browse(&notes, "v", "Network", "http", 20);
+        assert_eq!(total, 1);
+        assert!(matches!(&filtered[0], BrowseItem::Note { note } if note.title == "HTTP"));
+        let (first_page, total) = browse(&notes, "v", "Network", "", 1);
+        assert_eq!(first_page.len(), 1);
+        assert_eq!(total, 2);
     }
 }

@@ -29,6 +29,7 @@ use crate::{
 
 const SERVICE_FILE: &str = "bridge-service.json";
 const INDEX_FILE: &str = "note-index.json";
+const MAX_NOTE_CONTENT_BYTES: u64 = 2 * 1024 * 1024;
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BridgeServiceConfig {
@@ -73,6 +74,16 @@ fn api_error(status: StatusCode, code: &'static str, message: &'static str) -> R
         }),
     )
         .into_response()
+}
+
+fn is_safe_preview_path(relative_path: &str) -> bool {
+    relative_path.to_ascii_lowercase().ends_with(".md")
+        && !Path::new(relative_path).components().any(|part| {
+            matches!(
+                part,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
 }
 
 fn service_path(app: &AppHandle) -> Result<PathBuf, AppError> {
@@ -166,6 +177,45 @@ async fn search(
     );
     Json(serde_json::json!({"items": items}))
 }
+async fn browse_notes(
+    State(state): State<BridgeState>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    let Some(vault_id) = query.get("vaultId") else {
+        return api_error(StatusCode::BAD_REQUEST, "INVALID_LINK", "Missing vault ID.");
+    };
+    let directory = query.get("path").map(String::as_str).unwrap_or("");
+    if Path::new(directory).components().any(|part| {
+        matches!(
+            part,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    }) {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "INVALID_LINK",
+            "Invalid directory path.",
+        );
+    }
+    let limit = query
+        .get("limit")
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(50);
+    let notes = state.notes.read().await;
+    let (items, total) = note_index::browse(
+        &notes,
+        vault_id,
+        directory,
+        query.get("q").map(String::as_str).unwrap_or(""),
+        limit,
+    );
+    Json(serde_json::json!({
+        "hasMore": items.len() < total,
+        "items": items,
+        "total": total
+    }))
+    .into_response()
+}
 async fn resolve(
     State(state): State<BridgeState>,
     Query(query): Query<HashMap<String, String>>,
@@ -187,6 +237,104 @@ async fn resolve(
             StatusCode::NOT_FOUND,
             "NOTE_NOT_FOUND",
             "Target note was not found.",
+        ),
+    }
+}
+async fn note_content(
+    State(state): State<BridgeState>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    let Some(vault_id) = query.get("vaultId") else {
+        return api_error(StatusCode::BAD_REQUEST, "INVALID_LINK", "Missing vault ID.");
+    };
+    let Some(relative_path) = query.get("path") else {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "INVALID_LINK",
+            "Missing note path.",
+        );
+    };
+    if !is_safe_preview_path(relative_path) {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "INVALID_LINK",
+            "Invalid note path.",
+        );
+    }
+    let note = {
+        let notes = state.notes.read().await;
+        notes
+            .iter()
+            .find(|note| {
+                note.vault_id == *vault_id && note.relative_path.eq_ignore_ascii_case(relative_path)
+            })
+            .cloned()
+    };
+    let Some(note) = note else {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "NOTE_NOT_FOUND",
+            "Target note was not found.",
+        );
+    };
+    let config = match config::load_config(&state.app) {
+        Ok(config) => config,
+        Err(_) => {
+            return api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "INTERNAL_ERROR",
+                "Unable to load vaults.",
+            );
+        }
+    };
+    let Some(vault) = config.vaults.iter().find(|vault| vault.id == *vault_id) else {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "VAULT_NOT_FOUND",
+            "Target vault was not found.",
+        );
+    };
+    let Ok(root) = fs::canonicalize(&vault.path) else {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "VAULT_NOT_FOUND",
+            "Target vault was not found.",
+        );
+    };
+    let Ok(target) = fs::canonicalize(root.join(relative_path)) else {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "NOTE_NOT_FOUND",
+            "Target note was not found.",
+        );
+    };
+    if !target.starts_with(&root) {
+        return api_error(
+            StatusCode::BAD_REQUEST,
+            "INVALID_LINK",
+            "Invalid note path.",
+        );
+    }
+    let Ok(metadata) = fs::metadata(&target) else {
+        return api_error(
+            StatusCode::NOT_FOUND,
+            "NOTE_NOT_FOUND",
+            "Target note was not found.",
+        );
+    };
+    if metadata.len() > MAX_NOTE_CONTENT_BYTES {
+        return api_error(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "NOTE_TOO_LARGE",
+            "Target note is too large to preview.",
+        );
+    }
+    match fs::read_to_string(target) {
+        Ok(content) => Json(serde_json::json!({"note": note, "content": content})).into_response(),
+        Err(_) => api_error(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "NOTE_READ_FAILED",
+            "Target note could not be read as text.",
         ),
     }
 }
@@ -303,7 +451,9 @@ pub fn start(app: AppHandle) -> Result<BridgeState, AppError> {
             .route("/api/v1/health", get(health))
             .route("/api/v1/vaults", get(vaults))
             .route("/api/v1/search", get(search))
+            .route("/api/v1/notes/browse", get(browse_notes))
             .route("/api/v1/notes/resolve", get(resolve))
+            .route("/api/v1/notes/content", get(note_content))
             .route("/api/v1/bridge/heartbeat", post(heartbeat))
             .route("/api/v1/open", post(open_note))
             .layer(DefaultBodyLimit::max(16 * 1024))
@@ -431,7 +581,7 @@ fn classify_bridge_state(
 
 #[cfg(test)]
 mod tests {
-    use super::classify_bridge_state;
+    use super::{classify_bridge_state, is_safe_preview_path};
 
     #[test]
     fn classifies_installed_bridge_using_version_and_heartbeat() {
@@ -447,5 +597,14 @@ mod tests {
             classify_bridge_state(Some("0.1.0"), "0.1.0", true),
             "connected"
         );
+    }
+
+    #[test]
+    fn preview_paths_only_allow_relative_markdown_files() {
+        assert!(is_safe_preview_path("Notes/中文笔记.md"));
+        assert!(is_safe_preview_path("UPPER.MD"));
+        assert!(!is_safe_preview_path("../secret.md"));
+        assert!(!is_safe_preview_path("D:\\secret.md"));
+        assert!(!is_safe_preview_path("assets/image.png"));
     }
 }

@@ -20,12 +20,12 @@ describe('@ vault completion context', () => {
     expect(findCompletionTrigger('＠AAA-Wiki【【TCP')).toEqual({
       opener: '＠',
       from: 0,
-      stage: { kind: 'note', vaultName: 'AAA-Wiki', query: 'TCP' },
+      stage: { kind: 'note', vaultName: 'AAA-Wiki', directory: '', query: 'TCP' },
     });
     expect(findCompletionTrigger('@AAA-Wiki[[TCP')).toEqual({
       opener: '@',
       from: 0,
-      stage: { kind: 'note', vaultName: 'AAA-Wiki', query: 'TCP' },
+      stage: { kind: 'note', vaultName: 'AAA-Wiki', directory: '', query: 'TCP' },
     });
   });
 
@@ -33,7 +33,25 @@ describe('@ vault completion context', () => {
     expect(findCompletionTrigger('@AAA-Wiki/TCP')).toEqual({
       opener: '@',
       from: 0,
-      stage: { kind: 'note', vaultName: 'AAA-Wiki', query: 'TCP' },
+      stage: { kind: 'note', vaultName: 'AAA-Wiki', directory: '', query: 'TCP' },
+    });
+  });
+
+  it('separates the current directory from its local filter', () => {
+    expect(findCompletionTrigger('@AAA-Wiki/Projects/Active/')).toEqual({
+      opener: '@',
+      from: 0,
+      stage: { kind: 'note', vaultName: 'AAA-Wiki', directory: 'Projects/Active', query: '' },
+    });
+    expect(findCompletionTrigger('@AAA-Wiki/Projects/Active/TCP')).toEqual({
+      opener: '@',
+      from: 0,
+      stage: {
+        kind: 'note',
+        vaultName: 'AAA-Wiki',
+        directory: 'Projects/Active',
+        query: 'TCP',
+      },
     });
   });
 

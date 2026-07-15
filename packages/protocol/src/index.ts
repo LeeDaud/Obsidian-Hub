@@ -13,6 +13,18 @@ export interface IndexedNote {
 export interface SearchResponse {
   items: IndexedNote[];
 }
+export interface NoteContentResponse {
+  note: IndexedNote;
+  content: string;
+}
+export type VaultBrowseItem =
+  | { kind: 'folder'; name: string; path: string }
+  | { kind: 'note'; note: IndexedNote };
+export interface VaultBrowseResponse {
+  items: VaultBrowseItem[];
+  total: number;
+  hasMore: boolean;
+}
 export interface HubVault {
   id: string;
   name: string;

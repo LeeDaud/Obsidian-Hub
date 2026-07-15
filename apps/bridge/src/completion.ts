@@ -12,9 +12,16 @@ import type { HubVault, IndexedNote } from '@obsidian-hub/protocol';
 import { findCompletionTrigger } from './completionContext';
 import type { HubClient } from './hubClient';
 
-type CompletionItem = { kind: 'vault'; vault: HubVault } | { kind: 'note'; note: IndexedNote };
+type CompletionItem =
+  | { kind: 'vault'; vault: HubVault }
+  | { kind: 'folder'; vaultName: string; name: string; path: string }
+  | { kind: 'back'; vaultName: string; path: string }
+  | { kind: 'note'; note: IndexedNote }
+  | { kind: 'more'; cacheKey: string; nextLimit: number };
 
 class CrossVaultSuggest extends EditorSuggest<CompletionItem> {
+  private readonly limits = new Map<string, number>();
+
   constructor(
     app: App,
     private readonly client: HubClient,
@@ -55,10 +62,33 @@ class CrossVaultSuggest extends EditorSuggest<CompletionItem> {
           candidate.name.toLocaleLowerCase() === noteStage.vaultName.toLocaleLowerCase(),
       );
       if (!vault) return [];
-      return (await this.client.search(noteStage.query, vault.id)).map((note) => ({
-        kind: 'note' as const,
-        note,
-      }));
+      const cacheKey = `${vault.id}\n${noteStage.directory}\n${noteStage.query}`;
+      const pageSize = Math.max(20, this.client.resultLimit());
+      const limit = this.limits.get(cacheKey) ?? pageSize;
+      const response = await this.client.browse(
+        vault.id,
+        noteStage.directory,
+        noteStage.query,
+        limit,
+      );
+      const items: CompletionItem[] = response.items.map((item) =>
+        item.kind === 'folder'
+          ? {
+              kind: 'folder',
+              vaultName: vault.name,
+              name: item.name,
+              path: item.path,
+            }
+          : { kind: 'note', note: item.note },
+      );
+      if (noteStage.directory && !noteStage.query) {
+        const parent = noteStage.directory.split('/').slice(0, -1).join('/');
+        items.unshift({ kind: 'back', vaultName: vault.name, path: parent });
+      }
+      if (response.hasMore) {
+        items.push({ kind: 'more', cacheKey, nextLimit: limit + pageSize });
+      }
+      return items;
     } catch {
       new Notice('Obsidian Hub 暂不可用。');
       return [];
@@ -69,6 +99,20 @@ class CrossVaultSuggest extends EditorSuggest<CompletionItem> {
     if (item.kind === 'vault') {
       element.createDiv({ text: item.vault.name, cls: 'obsidian-hub-suggestion-vault' });
       element.createDiv({ text: '仓库 · 回车后选择笔记', cls: 'obsidian-hub-suggestion-path' });
+      return;
+    }
+    if (item.kind === 'folder') {
+      element.createDiv({ text: item.name, cls: 'obsidian-hub-suggestion-folder' });
+      element.createDiv({ text: `${item.path}/`, cls: 'obsidian-hub-suggestion-path' });
+      return;
+    }
+    if (item.kind === 'back') {
+      element.createDiv({ text: '返回上一级', cls: 'obsidian-hub-suggestion-folder' });
+      element.createDiv({ text: item.path || '仓库根目录', cls: 'obsidian-hub-suggestion-path' });
+      return;
+    }
+    if (item.kind === 'more') {
+      element.createDiv({ text: '加载更多…', cls: 'obsidian-hub-suggestion-more' });
       return;
     }
     element.createDiv({ text: item.note.title });
@@ -82,6 +126,20 @@ class CrossVaultSuggest extends EditorSuggest<CompletionItem> {
       const insert = `@${item.vault.name}/`;
       this.context.editor.replaceRange(insert, start, this.context.end);
       this.context.editor.setCursor({ line: start.line, ch: start.ch + insert.length });
+      window.setTimeout(() => this.open(), 0);
+      return;
+    }
+    if (item.kind === 'folder' || item.kind === 'back') {
+      const start = this.context.start;
+      const suffix = item.path ? `${item.path}/` : '';
+      const insert = `@${item.vaultName}/${suffix}`;
+      this.context.editor.replaceRange(insert, start, this.context.end);
+      this.context.editor.setCursor({ line: start.line, ch: start.ch + insert.length });
+      window.setTimeout(() => this.open(), 0);
+      return;
+    }
+    if (item.kind === 'more') {
+      this.limits.set(item.cacheKey, item.nextLimit);
       window.setTimeout(() => this.open(), 0);
       return;
     }

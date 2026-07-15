@@ -10,6 +10,7 @@ import {
 import { findCrossVaultLinks } from '@obsidian-hub/cross-vault-parser';
 import { createCrossVaultSuggest } from './completion';
 import { HubClient } from './hubClient';
+import { CrossVaultPreviewModal } from './previewModal';
 import { DEFAULT_SETTINGS, type BridgeSettings } from './types';
 
 function displayLabel(alias: string | undefined, notePath: string): string {
@@ -109,6 +110,7 @@ export default class ObsidianHubBridge extends Plugin {
   settings: BridgeSettings = DEFAULT_SETTINGS;
   private client = new HubClient(() => this.settings);
   private heartbeatId?: number;
+  private previewModal?: CrossVaultPreviewModal;
 
   async onload() {
     this.settings = {
@@ -127,6 +129,7 @@ export default class ObsidianHubBridge extends Plugin {
     this.heartbeatId = window.setInterval(() => void this.sendHeartbeat(), 45_000);
     this.register(() => {
       if (this.heartbeatId) window.clearInterval(this.heartbeatId);
+      this.previewModal?.close();
     });
   }
 
@@ -162,6 +165,7 @@ export default class ObsidianHubBridge extends Plugin {
         previous.data.slice(0, previous.data.length - match[0].length) +
         (match[0].startsWith(' ') ? ' ' : '');
       anchor.classList.add('obsidian-hub-cross-vault-link');
+      anchor.classList.remove('external-link');
       anchor.title = `${vaultName}\n${notePath}`;
       anchor.addEventListener('click', (event) => {
         event.preventDefault();
@@ -180,15 +184,15 @@ export default class ObsidianHubBridge extends Plugin {
       let cursor = 0;
       for (const link of links) {
         fragment.append(node.data.slice(cursor, link.from));
-        const anchor = document.createElement('a');
-        anchor.className = 'internal-link obsidian-hub-cross-vault-link';
-        anchor.textContent = displayLabel(link.alias, link.notePath);
-        anchor.title = `${link.vaultName}\n${link.notePath}`;
-        anchor.addEventListener('click', (event) => {
+        const renderedLink = document.createElement('span');
+        renderedLink.className = 'internal-link obsidian-hub-cross-vault-link';
+        renderedLink.textContent = displayLabel(link.alias, link.notePath);
+        renderedLink.title = `${link.vaultName}\n${link.notePath}`;
+        renderedLink.addEventListener('click', (event) => {
           event.preventDefault();
           void this.openLink(link.vaultName, link.notePath);
         });
-        fragment.append(anchor);
+        fragment.append(renderedLink);
         cursor = link.to;
       }
       fragment.append(node.data.slice(cursor));
@@ -199,12 +203,14 @@ export default class ObsidianHubBridge extends Plugin {
   private async openLink(vault: string, path: string) {
     try {
       const note = await this.client.resolve(vault, path);
-      await this.client.open(note);
-    } catch {
-      window.open(
-        `obsidian://open?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(path)}`,
+      const preview = await this.client.content(note);
+      this.previewModal?.close();
+      this.previewModal = new CrossVaultPreviewModal(this.app, preview, () =>
+        this.client.open(note).then(() => undefined),
       );
-      new Notice('Hub 不可用，已尝试通过 Obsidian URI 打开目标。');
+      this.previewModal.open();
+    } catch {
+      new Notice('无法加载跨仓库笔记预览，请确认 Hub 正在运行且目标笔记存在。');
     }
   }
 }

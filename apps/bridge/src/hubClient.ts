@@ -2,7 +2,9 @@ import type {
   BridgeHeartbeat,
   HubVault,
   IndexedNote,
+  NoteContentResponse,
   SearchResponse,
+  VaultBrowseResponse,
   VaultsResponse,
 } from '@obsidian-hub/protocol';
 import { requestUrl } from 'obsidian';
@@ -12,6 +14,9 @@ export class HubClient {
   constructor(private readonly settings: () => BridgeSettings) {}
   currentVaultId(): string {
     return this.settings().vaultId;
+  }
+  resultLimit(): number {
+    return this.settings().resultLimit;
   }
   private async request<T>(
     path: string,
@@ -62,10 +67,26 @@ export class HubClient {
     if (vaultId) params.set('vaultId', vaultId);
     return (await this.request<SearchResponse>(`/api/v1/search?${params}`)).items;
   }
+  browse(vaultId: string, path: string, query: string, limit: number) {
+    const params = new URLSearchParams({
+      vaultId,
+      path,
+      q: query,
+      limit: String(limit),
+    });
+    return this.request<VaultBrowseResponse>(`/api/v1/notes/browse?${params}`);
+  }
   resolve(vault: string, path: string) {
     return this.request<IndexedNote>(
       `/api/v1/notes/resolve?vault=${encodeURIComponent(vault)}&path=${encodeURIComponent(path)}`,
     );
+  }
+  content(note: IndexedNote) {
+    const params = new URLSearchParams({
+      vaultId: note.vaultId,
+      path: note.relativePath,
+    });
+    return this.request<NoteContentResponse>(`/api/v1/notes/content?${params}`);
   }
   heartbeat(payload: BridgeHeartbeat) {
     return this.request<{ status: string }>('/api/v1/bridge/heartbeat', {

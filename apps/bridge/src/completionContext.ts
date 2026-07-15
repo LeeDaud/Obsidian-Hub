@@ -1,6 +1,6 @@
 export type CompletionStage =
   | { kind: 'vault'; query: string }
-  | { kind: 'note'; vaultName: string; query: string };
+  | { kind: 'note'; vaultName: string; directory: string; query: string };
 
 export interface CompletionTrigger {
   opener: '@' | '＠';
@@ -26,10 +26,17 @@ export function findCompletionTrigger(textBeforeCursor: string): CompletionTrigg
     const vaultName = tail.slice(0, separator).trim();
     if (!vaultName) return null;
     const contentOffset = separator === slash ? 1 : 2;
+    const content = tail.slice(separator + contentOffset).replace(/\\/g, '/');
+    const lastSlash = content.lastIndexOf('/');
     return {
       opener,
       from,
-      stage: { kind: 'note', vaultName, query: tail.slice(separator + contentOffset) },
+      stage: {
+        kind: 'note',
+        vaultName,
+        directory: lastSlash < 0 ? '' : content.slice(0, lastSlash),
+        query: content.slice(lastSlash + 1),
+      },
     };
   }
   return null;

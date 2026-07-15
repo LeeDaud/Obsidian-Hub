@@ -23,7 +23,7 @@ __export(main_exports, {
   default: () => ObsidianHubBridge
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian3 = require("obsidian");
+var import_obsidian4 = require("obsidian");
 var import_view = require("@codemirror/view");
 
 // ../../packages/cross-vault-parser/src/index.ts
@@ -140,10 +140,17 @@ function findCompletionTrigger(textBeforeCursor) {
     const vaultName = tail.slice(0, separator).trim();
     if (!vaultName) return null;
     const contentOffset = separator === slash ? 1 : 2;
+    const content = tail.slice(separator + contentOffset).replace(/\\/g, "/");
+    const lastSlash = content.lastIndexOf("/");
     return {
       opener,
       from,
-      stage: { kind: "note", vaultName, query: tail.slice(separator + contentOffset) }
+      stage: {
+        kind: "note",
+        vaultName,
+        directory: lastSlash < 0 ? "" : content.slice(0, lastSlash),
+        query: content.slice(lastSlash + 1)
+      }
     };
   }
   return null;
@@ -160,6 +167,7 @@ var CrossVaultSuggest = class extends import_obsidian.EditorSuggest {
       { command: "Esc", purpose: "\u5173\u95ED" }
     ]);
   }
+  limits = /* @__PURE__ */ new Map();
   onTrigger(cursor, editor) {
     const textBeforeCursor = editor.getLine(cursor.line).slice(0, cursor.ch);
     const trigger = findCompletionTrigger(textBeforeCursor);
@@ -183,10 +191,33 @@ var CrossVaultSuggest = class extends import_obsidian.EditorSuggest {
         (candidate) => candidate.name.toLocaleLowerCase() === noteStage.vaultName.toLocaleLowerCase()
       );
       if (!vault) return [];
-      return (await this.client.search(noteStage.query, vault.id)).map((note) => ({
-        kind: "note",
-        note
-      }));
+      const cacheKey = `${vault.id}
+${noteStage.directory}
+${noteStage.query}`;
+      const pageSize = Math.max(20, this.client.resultLimit());
+      const limit = this.limits.get(cacheKey) ?? pageSize;
+      const response = await this.client.browse(
+        vault.id,
+        noteStage.directory,
+        noteStage.query,
+        limit
+      );
+      const items = response.items.map(
+        (item) => item.kind === "folder" ? {
+          kind: "folder",
+          vaultName: vault.name,
+          name: item.name,
+          path: item.path
+        } : { kind: "note", note: item.note }
+      );
+      if (noteStage.directory && !noteStage.query) {
+        const parent = noteStage.directory.split("/").slice(0, -1).join("/");
+        items.unshift({ kind: "back", vaultName: vault.name, path: parent });
+      }
+      if (response.hasMore) {
+        items.push({ kind: "more", cacheKey, nextLimit: limit + pageSize });
+      }
+      return items;
     } catch {
       new import_obsidian.Notice("Obsidian Hub \u6682\u4E0D\u53EF\u7528\u3002");
       return [];
@@ -196,6 +227,20 @@ var CrossVaultSuggest = class extends import_obsidian.EditorSuggest {
     if (item.kind === "vault") {
       element.createDiv({ text: item.vault.name, cls: "obsidian-hub-suggestion-vault" });
       element.createDiv({ text: "\u4ED3\u5E93 \xB7 \u56DE\u8F66\u540E\u9009\u62E9\u7B14\u8BB0", cls: "obsidian-hub-suggestion-path" });
+      return;
+    }
+    if (item.kind === "folder") {
+      element.createDiv({ text: item.name, cls: "obsidian-hub-suggestion-folder" });
+      element.createDiv({ text: `${item.path}/`, cls: "obsidian-hub-suggestion-path" });
+      return;
+    }
+    if (item.kind === "back") {
+      element.createDiv({ text: "\u8FD4\u56DE\u4E0A\u4E00\u7EA7", cls: "obsidian-hub-suggestion-folder" });
+      element.createDiv({ text: item.path || "\u4ED3\u5E93\u6839\u76EE\u5F55", cls: "obsidian-hub-suggestion-path" });
+      return;
+    }
+    if (item.kind === "more") {
+      element.createDiv({ text: "\u52A0\u8F7D\u66F4\u591A\u2026", cls: "obsidian-hub-suggestion-more" });
       return;
     }
     element.createDiv({ text: item.note.title });
@@ -208,6 +253,20 @@ var CrossVaultSuggest = class extends import_obsidian.EditorSuggest {
       const insert2 = `@${item.vault.name}/`;
       this.context.editor.replaceRange(insert2, start, this.context.end);
       this.context.editor.setCursor({ line: start.line, ch: start.ch + insert2.length });
+      window.setTimeout(() => this.open(), 0);
+      return;
+    }
+    if (item.kind === "folder" || item.kind === "back") {
+      const start = this.context.start;
+      const suffix = item.path ? `${item.path}/` : "";
+      const insert2 = `@${item.vaultName}/${suffix}`;
+      this.context.editor.replaceRange(insert2, start, this.context.end);
+      this.context.editor.setCursor({ line: start.line, ch: start.ch + insert2.length });
+      window.setTimeout(() => this.open(), 0);
+      return;
+    }
+    if (item.kind === "more") {
+      this.limits.set(item.cacheKey, item.nextLimit);
       window.setTimeout(() => this.open(), 0);
       return;
     }
@@ -234,6 +293,9 @@ var HubClient = class {
   }
   currentVaultId() {
     return this.settings().vaultId;
+  }
+  resultLimit() {
+    return this.settings().resultLimit;
   }
   async request(path, init) {
     const settings = this.settings();
@@ -281,10 +343,26 @@ var HubClient = class {
     if (vaultId) params.set("vaultId", vaultId);
     return (await this.request(`/api/v1/search?${params}`)).items;
   }
+  browse(vaultId, path, query, limit) {
+    const params = new URLSearchParams({
+      vaultId,
+      path,
+      q: query,
+      limit: String(limit)
+    });
+    return this.request(`/api/v1/notes/browse?${params}`);
+  }
   resolve(vault, path) {
     return this.request(
       `/api/v1/notes/resolve?vault=${encodeURIComponent(vault)}&path=${encodeURIComponent(path)}`
     );
+  }
+  content(note) {
+    const params = new URLSearchParams({
+      vaultId: note.vaultId,
+      path: note.relativePath
+    });
+    return this.request(`/api/v1/notes/content?${params}`);
   }
   heartbeat(payload) {
     return this.request("/api/v1/bridge/heartbeat", {
@@ -302,6 +380,54 @@ var HubClient = class {
         blockId: blockId ?? null
       })
     });
+  }
+};
+
+// src/previewModal.ts
+var import_obsidian3 = require("obsidian");
+var CrossVaultPreviewModal = class extends import_obsidian3.Modal {
+  constructor(app, preview, openInVault) {
+    super(app);
+    this.preview = preview;
+    this.openInVault = openInVault;
+  }
+  renderer;
+  onOpen() {
+    this.modalEl.addClass("obsidian-hub-preview-modal");
+    this.setTitle(this.preview.note.title || this.preview.note.fileName);
+    this.contentEl.createDiv({
+      cls: "obsidian-hub-preview-vault",
+      text: `${this.preview.note.vaultName} \xB7 ${this.preview.note.relativePath}`
+    });
+    const body = this.contentEl.createDiv({ cls: "markdown-preview-view" });
+    this.renderer = new import_obsidian3.Component();
+    this.renderer.load();
+    void import_obsidian3.MarkdownRenderer.render(
+      this.app,
+      this.preview.content,
+      body,
+      this.preview.note.relativePath,
+      this.renderer
+    ).catch(() => new import_obsidian3.Notice("\u65E0\u6CD5\u6E32\u67D3\u8DE8\u4ED3\u5E93\u7B14\u8BB0\u9884\u89C8\u3002"));
+    const actions = this.contentEl.createDiv({ cls: "obsidian-hub-preview-actions" });
+    const openButton = actions.createEl("button", {
+      cls: "mod-cta",
+      text: "\u5728\u76EE\u6807\u4ED3\u5E93\u6253\u5F00"
+    });
+    openButton.addEventListener("click", () => {
+      openButton.disabled = true;
+      void this.openInVault().then(() => this.close()).catch(() => {
+        openButton.disabled = false;
+        new import_obsidian3.Notice("\u65E0\u6CD5\u5728\u76EE\u6807\u4ED3\u5E93\u6253\u5F00\u7B14\u8BB0\u3002");
+      });
+    });
+    const closeButton = actions.createEl("button", { text: "\u5173\u95ED" });
+    closeButton.addEventListener("click", () => this.close());
+  }
+  onClose() {
+    this.renderer?.unload();
+    this.renderer = void 0;
+    this.contentEl.empty();
   }
 };
 
@@ -397,10 +523,11 @@ function createCrossVaultDecorations(onOpen) {
     { decorations: (value) => value.decorations }
   );
 }
-var ObsidianHubBridge = class extends import_obsidian3.Plugin {
+var ObsidianHubBridge = class extends import_obsidian4.Plugin {
   settings = DEFAULT_SETTINGS;
   client = new HubClient(() => this.settings);
   heartbeatId;
+  previewModal;
   async onload() {
     this.settings = {
       ...DEFAULT_SETTINGS,
@@ -418,6 +545,7 @@ var ObsidianHubBridge = class extends import_obsidian3.Plugin {
     this.heartbeatId = window.setInterval(() => void this.sendHeartbeat(), 45e3);
     this.register(() => {
       if (this.heartbeatId) window.clearInterval(this.heartbeatId);
+      this.previewModal?.close();
     });
   }
   async saveSettings() {
@@ -430,7 +558,7 @@ var ObsidianHubBridge = class extends import_obsidian3.Plugin {
         vaultId: this.settings.vaultId,
         vaultName: this.app.vault.getName(),
         pluginVersion: this.manifest.version,
-        obsidianVersion: import_obsidian3.apiVersion
+        obsidianVersion: import_obsidian4.apiVersion
       });
     } catch {
     }
@@ -446,6 +574,7 @@ var ObsidianHubBridge = class extends import_obsidian3.Plugin {
       if (!vaultName || !notePath) continue;
       previous.data = previous.data.slice(0, previous.data.length - match[0].length) + (match[0].startsWith(" ") ? " " : "");
       anchor.classList.add("obsidian-hub-cross-vault-link");
+      anchor.classList.remove("external-link");
       anchor.title = `${vaultName}
 ${notePath}`;
       anchor.addEventListener("click", (event) => {
@@ -464,16 +593,16 @@ ${notePath}`;
       let cursor = 0;
       for (const link of links) {
         fragment.append(node.data.slice(cursor, link.from));
-        const anchor = document.createElement("a");
-        anchor.className = "internal-link obsidian-hub-cross-vault-link";
-        anchor.textContent = displayLabel(link.alias, link.notePath);
-        anchor.title = `${link.vaultName}
+        const renderedLink = document.createElement("span");
+        renderedLink.className = "internal-link obsidian-hub-cross-vault-link";
+        renderedLink.textContent = displayLabel(link.alias, link.notePath);
+        renderedLink.title = `${link.vaultName}
 ${link.notePath}`;
-        anchor.addEventListener("click", (event) => {
+        renderedLink.addEventListener("click", (event) => {
           event.preventDefault();
           void this.openLink(link.vaultName, link.notePath);
         });
-        fragment.append(anchor);
+        fragment.append(renderedLink);
         cursor = link.to;
       }
       fragment.append(node.data.slice(cursor));
@@ -483,16 +612,20 @@ ${link.notePath}`;
   async openLink(vault, path) {
     try {
       const note = await this.client.resolve(vault, path);
-      await this.client.open(note);
-    } catch {
-      window.open(
-        `obsidian://open?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(path)}`
+      const preview = await this.client.content(note);
+      this.previewModal?.close();
+      this.previewModal = new CrossVaultPreviewModal(
+        this.app,
+        preview,
+        () => this.client.open(note).then(() => void 0)
       );
-      new import_obsidian3.Notice("Hub \u4E0D\u53EF\u7528\uFF0C\u5DF2\u5C1D\u8BD5\u901A\u8FC7 Obsidian URI \u6253\u5F00\u76EE\u6807\u3002");
+      this.previewModal.open();
+    } catch {
+      new import_obsidian4.Notice("\u65E0\u6CD5\u52A0\u8F7D\u8DE8\u4ED3\u5E93\u7B14\u8BB0\u9884\u89C8\uFF0C\u8BF7\u786E\u8BA4 Hub \u6B63\u5728\u8FD0\u884C\u4E14\u76EE\u6807\u7B14\u8BB0\u5B58\u5728\u3002");
     }
   }
 };
-var BridgeSettingTab = class extends import_obsidian3.PluginSettingTab {
+var BridgeSettingTab = class extends import_obsidian4.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -501,32 +634,32 @@ var BridgeSettingTab = class extends import_obsidian3.PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.createEl("h2", { text: "Obsidian Hub Bridge" });
-    new import_obsidian3.Setting(containerEl).setName("Hub \u670D\u52A1\u5730\u5740").addText(
+    new import_obsidian4.Setting(containerEl).setName("Hub \u670D\u52A1\u5730\u5740").addText(
       (text) => text.setValue(this.plugin.settings.apiBaseUrl).onChange(async (value) => {
         this.plugin.settings.apiBaseUrl = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian3.Setting(containerEl).setName("\u5F53\u524D\u4ED3\u5E93 ID").addText(
+    new import_obsidian4.Setting(containerEl).setName("\u5F53\u524D\u4ED3\u5E93 ID").addText(
       (text) => text.setValue(this.plugin.settings.vaultId).onChange(async (value) => {
         this.plugin.settings.vaultId = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian3.Setting(containerEl).setName("\u8BBF\u95EE\u4EE4\u724C").setDesc(this.plugin.settings.token ? "\u5DF2\u914D\u7F6E" : "\u672A\u914D\u7F6E");
-    new import_obsidian3.Setting(containerEl).setName("\u6392\u9664\u5F53\u524D\u4ED3\u5E93").addToggle(
+    new import_obsidian4.Setting(containerEl).setName("\u8BBF\u95EE\u4EE4\u724C").setDesc(this.plugin.settings.token ? "\u5DF2\u914D\u7F6E" : "\u672A\u914D\u7F6E");
+    new import_obsidian4.Setting(containerEl).setName("\u6392\u9664\u5F53\u524D\u4ED3\u5E93").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.excludeCurrentVault).onChange(async (value) => {
         this.plugin.settings.excludeCurrentVault = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian3.Setting(containerEl).setName("\u6D4B\u8BD5\u8FDE\u63A5").addButton(
+    new import_obsidian4.Setting(containerEl).setName("\u6D4B\u8BD5\u8FDE\u63A5").addButton(
       (button) => button.setButtonText("\u6D4B\u8BD5").onClick(async () => {
         try {
           await this.plugin["client"].health();
-          new import_obsidian3.Notice("\u5DF2\u8FDE\u63A5\u5230 Obsidian Hub\u3002");
+          new import_obsidian4.Notice("\u5DF2\u8FDE\u63A5\u5230 Obsidian Hub\u3002");
         } catch {
-          new import_obsidian3.Notice("Obsidian Hub \u672A\u8FD0\u884C\u6216\u8BA4\u8BC1\u5931\u8D25\u3002");
+          new import_obsidian4.Notice("Obsidian Hub \u672A\u8FD0\u884C\u6216\u8BA4\u8BC1\u5931\u8D25\u3002");
         }
       })
     );

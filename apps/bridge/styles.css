@@ -1,8 +1,20 @@
 .obsidian-hub-cross-vault-link {
+  background-image: none !important;
+  padding-inline-end: 0 !important;
+  color: var(--link-color);
+  text-decoration-line: underline;
+  text-decoration-thickness: from-font;
+  text-underline-offset: 2px;
   cursor: pointer;
 }
+.obsidian-hub-cross-vault-link:hover {
+  color: var(--link-color-hover);
+}
+.obsidian-hub-cross-vault-link::before,
 .obsidian-hub-cross-vault-link::after {
-  content: none;
+  display: none !important;
+  content: none !important;
+  background: none !important;
 }
 .obsidian-hub-cross-vault-link-source {
   cursor: text;
@@ -14,4 +26,32 @@
 .obsidian-hub-suggestion-vault {
   font-weight: 600;
   color: var(--text-normal);
+}
+.obsidian-hub-suggestion-folder {
+  color: var(--text-normal);
+  font-weight: 600;
+}
+.obsidian-hub-suggestion-more {
+  color: var(--interactive-accent);
+}
+.obsidian-hub-preview-modal {
+  width: min(760px, 90vw);
+}
+.obsidian-hub-preview-vault {
+  margin-block-end: var(--size-4-4);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+.obsidian-hub-preview-modal .markdown-preview-view {
+  max-height: min(65vh, 760px);
+  padding: 0 var(--size-4-2) 0 0;
+  overflow: auto;
+}
+.obsidian-hub-preview-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--size-4-2);
+  margin-block-start: var(--size-4-4);
+  padding-block-start: var(--size-4-3);
+  border-top: 1px solid var(--background-modifier-border);
 }
