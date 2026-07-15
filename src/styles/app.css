@@ -748,6 +748,19 @@ button:disabled {
   color: var(--text-error);
   border-color: color-mix(in srgb, var(--text-error) 35%, transparent);
 }
+.bridge-state--connected {
+  color: #72b38d;
+  border-color: rgb(114 179 141 / 35%);
+}
+.bridge-state--outdated,
+.bridge-state--installed-disabled {
+  color: #d09a71;
+  border-color: rgb(208 154 113 / 35%);
+}
+.bridge-action {
+  color: #c99784;
+  white-space: nowrap;
+}
 .vault-main p {
   overflow: hidden;
   margin: 0;

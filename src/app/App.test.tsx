@@ -39,6 +39,14 @@ function createGateway(): VaultGateway {
       scannedAt: new Date('2026-07-14T10:00:00.000Z').getTime(),
     }),
     launch: vi.fn().mockResolvedValue('obsidian://open?vault=Main'),
+    getBridgeStatus: vi.fn().mockResolvedValue({
+      state: 'not-installed',
+      installedVersion: null,
+      bundledVersion: '0.1.0',
+    }),
+    installBridge: vi
+      .fn()
+      .mockResolvedValue('D:\\Notes\\Main\\.obsidian\\plugins\\obsidian-hub-bridge'),
     closeWindow: vi.fn().mockResolvedValue(undefined),
   };
 }
@@ -104,5 +112,19 @@ describe('App', () => {
     await waitFor(() => expect(gateway.validateDirectory).toHaveBeenCalled());
     await user.click(screen.getByRole('button', { name: /打开所选/ }));
     await waitFor(() => expect(gateway.launch).toHaveBeenCalledTimes(1));
+  });
+
+  it('installs Bridge for an existing vault and shows enable guidance', async () => {
+    const user = userEvent.setup();
+    const gateway = createGateway();
+    render(<App gateway={gateway} />);
+
+    await user.click(await screen.findByRole('button', { name: '安装 Bridge' }));
+
+    await waitFor(() =>
+      expect(gateway.installBridge).toHaveBeenCalledWith('D:\\Notes\\Main', 'main'),
+    );
+    expect(await screen.findByText('Bridge 待启用')).toBeInTheDocument();
+    expect(screen.getByText(/第三方插件中手动启用/)).toBeInTheDocument();
   });
 });

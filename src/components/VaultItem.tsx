@@ -1,30 +1,54 @@
 import type { CSSProperties } from 'react';
-import type { VaultListItem } from '../domain/vault';
+import type { BridgeState, VaultListItem } from '../domain/vault';
 import { formatLastOpened } from '../features/vaults/vaultSelectors';
 
 interface VaultItemProps {
   vault: VaultListItem;
   selected: boolean;
   opening: boolean;
+  installingBridge: boolean;
+  bridgeState: BridgeState;
   onSelect(): void;
   onOpen(): void;
   onToggleFavorite(): void;
   onRepair(): void;
   onRemove(): void;
+  onBridgeAction(): void;
 }
 
 export function VaultItem({
   vault,
   selected,
   opening,
+  installingBridge,
+  bridgeState,
   onSelect,
   onOpen,
   onToggleFavorite,
   onRepair,
   onRemove,
+  onBridgeAction,
 }: VaultItemProps) {
   const hue = [...vault.id].reduce((value, character) => value + character.charCodeAt(0), 0) % 360;
   const style = { '--vault-hue': hue } as CSSProperties;
+  const bridgeLabels: Record<BridgeState, string> = {
+    checking: 'Bridge 检查中',
+    'not-installed': 'Bridge 未安装',
+    'installed-disabled': 'Bridge 待启用',
+    connected: 'Bridge 已连接',
+    outdated: 'Bridge 可更新',
+    unknown: 'Bridge 状态未知',
+  };
+  const bridgeAction =
+    bridgeState === 'not-installed'
+      ? '安装 Bridge'
+      : bridgeState === 'outdated'
+        ? '更新 Bridge'
+        : bridgeState === 'installed-disabled'
+          ? '启用说明'
+          : bridgeState === 'unknown'
+            ? '重试安装'
+            : null;
 
   return (
     <article
@@ -51,6 +75,9 @@ export function VaultItem({
           {vault.pathStatus === 'invalid' ? (
             <span className="state-pill error">路径失效</span>
           ) : null}
+          <span className={`state-pill bridge-state bridge-state--${bridgeState}`}>
+            {bridgeLabels[bridgeState]}
+          </span>
         </div>
         {vault.description ? <p>{vault.description}</p> : null}
       </div>
@@ -61,6 +88,19 @@ export function VaultItem({
       </div>
 
       <div className="vault-actions">
+        {bridgeAction && vault.pathStatus === 'valid' ? (
+          <button
+            type="button"
+            className="text-button bridge-action"
+            disabled={installingBridge}
+            onClick={(event) => {
+              event.stopPropagation();
+              onBridgeAction();
+            }}
+          >
+            {installingBridge ? '处理中…' : bridgeAction}
+          </button>
+        ) : null}
         {vault.pathStatus === 'invalid' ? (
           <button
             type="button"

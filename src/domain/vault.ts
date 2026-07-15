@@ -1,6 +1,19 @@
 export type ThemeMode = 'system' | 'light' | 'dark';
 export type SortMode = 'favoriteThenRecent' | 'recent' | 'name';
 export type VaultPathStatus = 'checking' | 'valid' | 'invalid';
+export type BridgeState =
+  | 'checking'
+  | 'not-installed'
+  | 'installed-disabled'
+  | 'connected'
+  | 'outdated'
+  | 'unknown';
+
+export interface BridgeStatus {
+  state: Exclude<BridgeState, 'checking' | 'unknown'>;
+  installedVersion: string | null;
+  bundledVersion: string;
+}
 
 export interface VaultEntry {
   id: string;

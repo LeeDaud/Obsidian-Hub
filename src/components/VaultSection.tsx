@@ -1,4 +1,4 @@
-import type { VaultListItem } from '../domain/vault';
+import type { BridgeState, VaultListItem } from '../domain/vault';
 import { VaultItem } from './VaultItem';
 
 interface VaultSectionProps {
@@ -6,11 +6,14 @@ interface VaultSectionProps {
   vaults: VaultListItem[];
   selectedId: string | null;
   openingId: string | null;
+  installingBridgeId: string | null;
+  bridgeStates: Record<string, BridgeState>;
   onSelect(id: string): void;
   onOpen(vault: VaultListItem): void;
   onToggleFavorite(vault: VaultListItem): void;
   onRepair(vault: VaultListItem): void;
   onRemove(vault: VaultListItem): void;
+  onBridgeAction(vault: VaultListItem): void;
 }
 
 export function VaultSection(props: VaultSectionProps) {
@@ -28,11 +31,14 @@ export function VaultSection(props: VaultSectionProps) {
             vault={vault}
             selected={props.selectedId === vault.id}
             opening={props.openingId === vault.id}
+            installingBridge={props.installingBridgeId === vault.id}
+            bridgeState={props.bridgeStates[vault.id] ?? 'checking'}
             onSelect={() => props.onSelect(vault.id)}
             onOpen={() => props.onOpen(vault)}
             onToggleFavorite={() => props.onToggleFavorite(vault)}
             onRepair={() => props.onRepair(vault)}
             onRemove={() => props.onRemove(vault)}
+            onBridgeAction={() => props.onBridgeAction(vault)}
           />
         ))}
       </div>

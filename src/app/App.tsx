@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type {
   AppConfigV1,
+  BridgeState,
   NewVaultInput,
   SortMode,
   VaultEntry,
@@ -33,6 +34,8 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
+  const [installingBridgeId, setInstallingBridgeId] = useState<string | null>(null);
+  const [bridgeStates, setBridgeStates] = useState<Record<string, BridgeState>>({});
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [status, setStatus] = useState('就绪');
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +51,7 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
         if (cancelled) return;
         setConfig(loaded);
         setPathStatuses(Object.fromEntries(loaded.vaults.map((vault) => [vault.id, 'checking'])));
+        setBridgeStates(Object.fromEntries(loaded.vaults.map((vault) => [vault.id, 'checking'])));
         setSelectedId(loaded.vaults[0]?.id ?? null);
         await Promise.all(
           loaded.vaults.map(async (vault) => {
@@ -59,6 +63,22 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
             }
           }),
         );
+        if (gateway.getBridgeStatus) {
+          await Promise.all(
+            loaded.vaults.map(async (vault) => {
+              try {
+                const bridge = await gateway.getBridgeStatus!(vault.path, vault.id);
+                if (!cancelled) {
+                  setBridgeStates((current) => ({ ...current, [vault.id]: bridge.state }));
+                }
+              } catch {
+                if (!cancelled) {
+                  setBridgeStates((current) => ({ ...current, [vault.id]: 'unknown' }));
+                }
+              }
+            }),
+          );
+        }
       } catch (reason) {
         if (!cancelled) setError(toAppError(reason).message);
       }
@@ -86,6 +106,33 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
     [config?.preferences.sortMode, query, vaults],
   );
   const overviewPaths = useMemo(() => config?.vaults.map((vault) => vault.path) ?? [], [config]);
+
+  useEffect(() => {
+    if (!config || !gateway.getBridgeStatus) return;
+    let cancelled = false;
+    async function refreshBridgeStates() {
+      await Promise.all(
+        config!.vaults.map(async (vault) => {
+          try {
+            const bridge = await gateway.getBridgeStatus!(vault.path, vault.id);
+            if (!cancelled) {
+              setBridgeStates((current) => ({ ...current, [vault.id]: bridge.state }));
+            }
+          } catch {
+            if (!cancelled) {
+              setBridgeStates((current) => ({ ...current, [vault.id]: 'unknown' }));
+            }
+          }
+        }),
+      );
+    }
+    void refreshBridgeStates();
+    const interval = window.setInterval(() => void refreshBridgeStates(), 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [config, gateway]);
 
   useEffect(() => {
     if (!config) return;
@@ -159,6 +206,34 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
     setSelectedId(entry.id);
     setShowAddDialog(false);
     setStatus(`已添加 ${entry.name}`);
+    setBridgeStates((current) => ({ ...current, [entry.id]: 'not-installed' }));
+  }
+
+  async function handleBridgeAction(vault: VaultListItem) {
+    const bridgeState = bridgeStates[vault.id] ?? 'unknown';
+    if (bridgeState === 'installed-disabled') {
+      setStatus(
+        `Bridge 已安装到 ${vault.name}。请在 Obsidian → 设置 → 第三方插件中启用 Obsidian Hub Bridge。`,
+      );
+      return;
+    }
+    if (!gateway.installBridge) {
+      setError('当前版本不支持安装 Bridge。');
+      return;
+    }
+    setInstallingBridgeId(vault.id);
+    setError(null);
+    setStatus(`正在为 ${vault.name} 安装 Bridge…`);
+    try {
+      await gateway.installBridge(vault.path, vault.id);
+      setBridgeStates((current) => ({ ...current, [vault.id]: 'installed-disabled' }));
+      setStatus(`Bridge 已安装到 ${vault.name}。请在 Obsidian → 设置 → 第三方插件中手动启用。`);
+    } catch (reason) {
+      setBridgeStates((current) => ({ ...current, [vault.id]: 'unknown' }));
+      setError(`Bridge 安装失败：${toAppError(reason).message}`);
+    } finally {
+      setInstallingBridgeId(null);
+    }
   }
 
   async function toggleFavorite(vault: VaultListItem) {
@@ -372,11 +447,14 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
                 vaults={visibleVaults}
                 selectedId={selectedId}
                 openingId={openingId}
+                installingBridgeId={installingBridgeId}
+                bridgeStates={bridgeStates}
                 onSelect={setSelectedId}
                 onOpen={(vault) => void launchVault(vault)}
                 onToggleFavorite={(vault) => void toggleFavorite(vault)}
                 onRepair={(vault) => void repairVault(vault)}
                 onRemove={(vault) => void removeVault(vault)}
+                onBridgeAction={(vault) => void handleBridgeAction(vault)}
               />
               {!query ? (
                 <QuickActionDock

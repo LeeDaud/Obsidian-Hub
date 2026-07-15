@@ -3,6 +3,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
 import type {
   AppConfigV1,
+  BridgeStatus,
   LaunchTarget,
   VaultOverview,
   VaultValidationResult,
@@ -17,6 +18,8 @@ export interface VaultGateway {
   loadOverviewCache(paths: string[]): Promise<VaultOverview | null>;
   scanOverview(paths: string[]): Promise<VaultOverview>;
   launch(target: LaunchTarget): Promise<string>;
+  installBridge?(vaultPath: string, vaultId: string): Promise<string>;
+  getBridgeStatus?(vaultPath: string, vaultId: string): Promise<BridgeStatus>;
   closeWindow(): Promise<void>;
 }
 
@@ -77,6 +80,22 @@ export const tauriVaultGateway: VaultGateway = {
   async launch(target) {
     try {
       return await invoke<string>('launch_obsidian_vault', { target });
+    } catch (reason) {
+      throw toAppError(reason);
+    }
+  },
+
+  async installBridge(vaultPath, vaultId) {
+    try {
+      return await invoke<string>('install_bridge_plugin', { vaultPath, vaultId });
+    } catch (reason) {
+      throw toAppError(reason);
+    }
+  },
+
+  async getBridgeStatus(vaultPath, vaultId) {
+    try {
+      return await invoke<BridgeStatus>('get_bridge_status', { vaultPath, vaultId });
     } catch (reason) {
       throw toAppError(reason);
     }
