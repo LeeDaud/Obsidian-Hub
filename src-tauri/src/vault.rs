@@ -14,15 +14,20 @@ pub struct VaultValidationResult {
 pub fn validate_vault_directory(path: &str) -> Result<VaultValidationResult, AppError> {
     let input = Path::new(path);
     if !input.exists() {
-        return Err(AppError::new("VAULT_PATH_NOT_FOUND", "所选目录不存在，请重新选择。"));
+        return Err(AppError::new(
+            "VAULT_PATH_NOT_FOUND",
+            "所选目录不存在，请重新选择。",
+        ));
     }
     if !input.is_dir() {
-        return Err(AppError::new("VAULT_PATH_NOT_FOUND", "所选路径不是文件夹。"));
+        return Err(AppError::new(
+            "VAULT_PATH_NOT_FOUND",
+            "所选路径不是文件夹。",
+        ));
     }
 
-    let canonical = fs::canonicalize(input).map_err(|_| {
-        AppError::new("VAULT_PATH_FORBIDDEN", "无法访问所选目录，请检查权限。")
-    })?;
+    let canonical = fs::canonicalize(input)
+        .map_err(|_| AppError::new("VAULT_PATH_FORBIDDEN", "无法访问所选目录，请检查权限。"))?;
     if !canonical.join(".obsidian").is_dir() {
         return Err(AppError::new(
             "VAULT_MARKER_NOT_FOUND",
@@ -58,7 +63,10 @@ mod tests {
         let result = validate_vault_directory(root.path().to_str().expect("utf8 path"))
             .expect("valid vault");
 
-        assert_eq!(result.suggested_name, root.path().file_name().unwrap().to_string_lossy());
+        assert_eq!(
+            result.suggested_name,
+            root.path().file_name().unwrap().to_string_lossy()
+        );
     }
 
     #[test]

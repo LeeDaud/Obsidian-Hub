@@ -56,9 +56,10 @@ impl Default for AppConfig {
 }
 
 fn config_path(app: &AppHandle) -> Result<PathBuf, AppError> {
-    app.path().app_config_dir().map(|directory| directory.join(CONFIG_FILE_NAME)).map_err(|_| {
-        AppError::new("CONFIG_PATH_FAILED", "无法定位应用配置目录。")
-    })
+    app.path()
+        .app_config_dir()
+        .map(|directory| directory.join(CONFIG_FILE_NAME))
+        .map_err(|_| AppError::new("CONFIG_PATH_FAILED", "无法定位应用配置目录。"))
 }
 
 fn validate_config(config: &AppConfig) -> Result<(), AppError> {
@@ -71,13 +72,22 @@ fn validate_config(config: &AppConfig) -> Result<(), AppError> {
 
     let mut paths = HashSet::new();
     for vault in &config.vaults {
-        if vault.id.trim().is_empty() || vault.name.trim().is_empty() || vault.path.trim().is_empty() {
-            return Err(AppError::new("CONFIG_INVALID", "配置中存在缺少必要字段的仓库。"));
+        if vault.id.trim().is_empty()
+            || vault.name.trim().is_empty()
+            || vault.path.trim().is_empty()
+        {
+            return Err(AppError::new(
+                "CONFIG_INVALID",
+                "配置中存在缺少必要字段的仓库。",
+            ));
         }
 
         let normalized = vault.path.trim_end_matches(['\\', '/']).to_lowercase();
         if !paths.insert(normalized) {
-            return Err(AppError::new("VAULT_DUPLICATE_PATH", "配置中存在重复的仓库路径。"));
+            return Err(AppError::new(
+                "VAULT_DUPLICATE_PATH",
+                "配置中存在重复的仓库路径。",
+            ));
         }
     }
     Ok(())
@@ -123,7 +133,7 @@ pub fn save_config(app: &AppHandle, config: AppConfig) -> Result<AppConfig, AppE
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_config, AppConfig, VaultEntry};
+    use super::{AppConfig, VaultEntry, validate_config};
 
     fn vault(id: &str, path: &str) -> VaultEntry {
         VaultEntry {
@@ -149,7 +159,10 @@ mod tests {
     #[test]
     fn rejects_case_insensitive_duplicate_windows_paths() {
         let mut config = AppConfig::default();
-        config.vaults = vec![vault("one", "D:\\Notes\\Main"), vault("two", "d:\\notes\\main\\")];
+        config.vaults = vec![
+            vault("one", "D:\\Notes\\Main"),
+            vault("two", "d:\\notes\\main\\"),
+        ];
 
         let error = validate_config(&config).expect_err("duplicate paths must fail");
 

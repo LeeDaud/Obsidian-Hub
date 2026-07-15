@@ -20,3 +20,6 @@ tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tempfile = "3"
 url = "2"
+axum = "0.8"
+rand = "0.9"
+tokio = { version = "1", features = ["net", "sync"] }

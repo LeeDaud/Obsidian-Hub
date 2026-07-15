@@ -101,7 +101,11 @@ fn save_cache(app: &AppHandle, paths: &[String], overview: &VaultOverview) -> Re
 fn should_ignore(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|name| IGNORED_DIRECTORIES.iter().any(|ignored| name.eq_ignore_ascii_case(ignored)))
+        .is_some_and(|name| {
+            IGNORED_DIRECTORIES
+                .iter()
+                .any(|ignored| name.eq_ignore_ascii_case(ignored))
+        })
 }
 
 fn scan_directory(path: &Path, overview: &mut VaultOverview) {
@@ -161,7 +165,7 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{scan_directory, VaultOverview};
+    use super::{VaultOverview, scan_directory};
 
     #[test]
     fn counts_markdown_and_folders_while_ignoring_internal_directories() {
@@ -170,8 +174,11 @@ mod tests {
         fs::create_dir_all(root.path().join(".obsidian/plugins/demo")).expect("create config");
         fs::write(root.path().join("Home.md"), "# Home").expect("write home");
         fs::write(root.path().join("Notes/Topic/Idea.MD"), "# Idea").expect("write idea");
-        fs::write(root.path().join(".obsidian/plugins/demo/readme.md"), "ignored")
-            .expect("write ignored note");
+        fs::write(
+            root.path().join(".obsidian/plugins/demo/readme.md"),
+            "ignored",
+        )
+        .expect("write ignored note");
 
         let mut overview = VaultOverview {
             vault_count: 1,

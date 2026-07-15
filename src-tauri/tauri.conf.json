@@ -27,6 +27,11 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "resources": {
+      "../apps/bridge/manifest.json": "bridge/manifest.json",
+      "../apps/bridge/main.js": "bridge/main.js",
+      "../apps/bridge/styles.css": "bridge/styles.css"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
