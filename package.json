@@ -5,13 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "pnpm bridge:build && tsc -b && vite build",
+    "bridge:build": "pnpm --filter obsidian-hub-bridge build",
+    "bridge:typecheck": "pnpm --filter obsidian-hub-bridge typecheck",
     "tauri": "tauri",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc -b --pretty false",
-    "test": "vitest run"
+    "test": "vitest run && pnpm --filter obsidian-hub-bridge test",
+    "test:shared": "vitest run packages/cross-vault-parser/src/index.test.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1",

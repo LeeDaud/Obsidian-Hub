@@ -3,4 +3,5 @@ dist
 src-tauri/target
 src-tauri/gen
 pnpm-lock.yaml
-
+apps/bridge/main.js
+plugin.md

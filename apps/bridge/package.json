@@ -1,0 +1,25 @@
+{
+  "name": "obsidian-hub-bridge",
+  "version": "0.3.3",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@codemirror/state": "6.5.2",
+    "@codemirror/view": "6.38.6",
+    "@obsidian-hub/cross-vault-parser": "workspace:*",
+    "@obsidian-hub/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.13",
+    "builtin-modules": "4.0.0",
+    "esbuild": "0.25.12",
+    "obsidian": "1.8.7",
+    "typescript": "5.9.3",
+    "vitest": "4.1.0"
+  }
+}

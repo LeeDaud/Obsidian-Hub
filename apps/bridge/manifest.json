@@ -1,0 +1,9 @@
+{
+  "id": "obsidian-hub-bridge",
+  "name": "Obsidian Hub Bridge",
+  "version": "0.3.3",
+  "minAppVersion": "1.5.0",
+  "description": "Search and open notes across vaults managed by Obsidian Hub.",
+  "author": "Obsidian Hub contributors",
+  "isDesktopOnly": true
+}
