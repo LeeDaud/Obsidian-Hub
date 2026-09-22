@@ -1,4 +1,4 @@
-import { apiVersion, App, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { App, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
 import {
   Decoration,
   DecorationSet,
@@ -9,7 +9,7 @@ import {
 } from '@codemirror/view';
 import { findCrossVaultLinks } from '@obsidian-hub/cross-vault-parser';
 import { createCrossVaultSuggest } from './completion';
-import { HubClient } from './hubClient';
+import { LocalClient } from './localClient';
 import { CrossVaultPreviewModal } from './previewModal';
 import { DEFAULT_SETTINGS, type BridgeSettings } from './types';
 
@@ -108,8 +108,7 @@ function createCrossVaultDecorations(
 
 export default class ObsidianHubBridge extends Plugin {
   settings: BridgeSettings = DEFAULT_SETTINGS;
-  private client = new HubClient(() => this.settings);
-  private heartbeatId?: number;
+  private client = new LocalClient(() => this.settings);
   private previewModal?: CrossVaultPreviewModal;
 
   async onload() {
@@ -125,30 +124,14 @@ export default class ObsidianHubBridge extends Plugin {
     this.registerEditorSuggest(createCrossVaultSuggest(this.app, this.client));
     this.registerMarkdownPostProcessor((element) => this.renderReadingLinks(element));
     this.addSettingTab(new BridgeSettingTab(this.app, this));
-    void this.sendHeartbeat();
-    this.heartbeatId = window.setInterval(() => void this.sendHeartbeat(), 45_000);
+    void this.client.load();
     this.register(() => {
-      if (this.heartbeatId) window.clearInterval(this.heartbeatId);
       this.previewModal?.close();
     });
   }
 
   async saveSettings() {
     await this.saveData(this.settings);
-  }
-
-  private async sendHeartbeat() {
-    if (!this.settings.vaultId || !this.settings.token) return;
-    try {
-      await this.client.heartbeat({
-        vaultId: this.settings.vaultId,
-        vaultName: this.app.vault.getName(),
-        pluginVersion: this.manifest.version,
-        obsidianVersion: apiVersion,
-      });
-    } catch {
-      // The next heartbeat retries without blocking Obsidian.
-    }
   }
 
   private renderReadingLinks(element: HTMLElement) {
@@ -210,7 +193,7 @@ export default class ObsidianHubBridge extends Plugin {
       );
       this.previewModal.open();
     } catch {
-      new Notice('无法加载跨仓库笔记预览，请确认 Hub 正在运行且目标笔记存在。');
+      new Notice('无法加载跨仓库笔记预览，请确认目标笔记存在且可读取。');
     }
   }
 }
@@ -227,35 +210,33 @@ class BridgeSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.createEl('h2', { text: 'Obsidian Hub Bridge' });
-    new Setting(containerEl).setName('Hub 服务地址').addText((text) =>
-      text.setValue(this.plugin.settings.apiBaseUrl).onChange(async (value) => {
-        this.plugin.settings.apiBaseUrl = value;
-        await this.plugin.saveSettings();
-      }),
-    );
+    new Setting(containerEl)
+      .setName('登记表路径')
+      .setDesc('Hub 仓库登记表 config.json 的绝对路径，由 Hub 安装时写入。')
+      .addText((text) =>
+        text.setValue(this.plugin.settings.registryPath).onChange(async (value) => {
+          this.plugin.settings.registryPath = value;
+          await this.plugin.saveSettings();
+        }),
+      );
     new Setting(containerEl).setName('当前仓库 ID').addText((text) =>
       text.setValue(this.plugin.settings.vaultId).onChange(async (value) => {
         this.plugin.settings.vaultId = value;
         await this.plugin.saveSettings();
       }),
     );
-    new Setting(containerEl)
-      .setName('访问令牌')
-      .setDesc(this.plugin.settings.token ? '已配置' : '未配置');
     new Setting(containerEl).setName('排除当前仓库').addToggle((toggle) =>
       toggle.setValue(this.plugin.settings.excludeCurrentVault).onChange(async (value) => {
         this.plugin.settings.excludeCurrentVault = value;
         await this.plugin.saveSettings();
       }),
     );
-    new Setting(containerEl).setName('测试连接').addButton((button) =>
-      button.setButtonText('测试').onClick(async () => {
-        try {
-          await this.plugin['client'].health();
-          new Notice('已连接到 Obsidian Hub。');
-        } catch {
-          new Notice('Obsidian Hub 未运行或认证失败。');
-        }
+    new Setting(containerEl).setName('重新扫描索引').addButton((button) =>
+      button.setButtonText('扫描').onClick(async () => {
+        button.setDisabled(true);
+        await this.plugin['client'].load();
+        button.setDisabled(false);
+        new Notice('跨仓库索引已刷新。');
       }),
     );
   }

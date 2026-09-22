@@ -30,6 +30,7 @@ use crate::{
 const SERVICE_FILE: &str = "bridge-service.json";
 const INDEX_FILE: &str = "note-index.json";
 const MAX_NOTE_CONTENT_BYTES: u64 = 2 * 1024 * 1024;
+const BRIDGE_PLUGIN_ID: &str = "obsidian-hub-bridge";
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BridgeServiceConfig {
@@ -507,9 +508,52 @@ pub fn install_bridge(
             )
         })?;
     }
-    let service = load_or_create_service(app)?;
-    fs::write(target.join("data.json"), serde_json::to_vec_pretty(&serde_json::json!({"apiBaseUrl":service.api_base_url,"token":service.token,"vaultId":vault_id,"excludeCurrentVault":true,"showCrossVaultIcon":true,"resultLimit":20,"requestTimeoutMs":1500})).unwrap_or_default()).map_err(|_| AppError::new("BRIDGE_INSTALL_FAILED", "无法写入 Bridge 配置。"))?;
+    let registry_path = app
+        .path()
+        .app_config_dir()
+        .map_err(|_| AppError::new("CONFIG_PATH_FAILED", "无法定位应用配置目录。"))?
+        .join("config.json")
+        .to_string_lossy()
+        .into_owned();
+    fs::write(
+        target.join("data.json"),
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "registryPath": registry_path,
+            "vaultId": vault_id,
+            "excludeCurrentVault": true,
+            "showCrossVaultIcon": true,
+            "resultLimit": 20,
+        }))
+        .unwrap_or_default(),
+    )
+    .map_err(|_| AppError::new("BRIDGE_INSTALL_FAILED", "无法写入 Bridge 配置。"))?;
+    enable_bridge_in_community_plugins(&root)?;
     Ok(target.to_string_lossy().into_owned())
+}
+
+fn enable_bridge_in_community_plugins(root: &Path) -> Result<(), AppError> {
+    let obsidian_dir = root.join(".obsidian");
+    let path = obsidian_dir.join("community-plugins.json");
+    let mut plugins: Vec<String> = if path.exists() {
+        let Ok(contents) = fs::read_to_string(&path) else {
+            return Ok(());
+        };
+        let Ok(parsed) = serde_json::from_str::<Vec<String>>(&contents) else {
+            return Ok(());
+        };
+        parsed
+    } else {
+        Vec::new()
+    };
+    if plugins.iter().any(|id| id == BRIDGE_PLUGIN_ID) {
+        return Ok(());
+    }
+    plugins.push(BRIDGE_PLUGIN_ID.to_owned());
+    fs::create_dir_all(&obsidian_dir)
+        .map_err(|_| AppError::new("BRIDGE_INSTALL_FAILED", "无法创建插件配置目录。"))?;
+    fs::write(&path, serde_json::to_vec_pretty(&plugins).unwrap_or_default())
+        .map_err(|_| AppError::new("BRIDGE_INSTALL_FAILED", "无法启用 Bridge 插件。"))?;
+    Ok(())
 }
 
 fn bundled_manifest(app: &AppHandle) -> Result<BridgeManifest, AppError> {

@@ -16,6 +16,7 @@
 
 ## 项目约定
 
+- 当前产品为 Hub + 独立桌面 Bridge；已有核心流程用户验收完成，当前执行 2026-09-22 确认的独立运行与可靠性规划。Bridge 只读登记仓库，Hub 是本机登记表唯一写入者，HTTP 不作为新插件核心依赖。
 - 严格遵循 `CLAUDE.md` 中的产品边界、目录结构、依赖管理、数据安全、测试原则、完成标准和 Commit 规范。
 - 子项目规划先更新 `docs/plan/plan.md`，再更新 `docs/todo/todo.md`。
 - 前端采用“Obsidian 原生感”而非像素级复刻；若引入 `000-styleseed/engine/`，必须遵循其中的 `DESIGN-LANGUAGE.md` 和 `CLAUDE.md`，完成后运行 `/ss-review`。

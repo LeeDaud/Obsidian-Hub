@@ -1,7 +1,9 @@
 "use strict";
+var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __export = (target, all) => {
   for (var name in all)
@@ -15,6 +17,14 @@ var __copyProps = (to, from, except, desc) => {
   }
   return to;
 };
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
 // src/main.ts
@@ -23,7 +33,7 @@ __export(main_exports, {
   default: () => ObsidianHubBridge
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian4 = require("obsidian");
+var import_obsidian3 = require("obsidian");
 var import_view = require("@codemirror/view");
 
 // ../../packages/cross-vault-parser/src/index.ts
@@ -219,7 +229,7 @@ ${noteStage.query}`;
       }
       return items;
     } catch {
-      new import_obsidian.Notice("Obsidian Hub \u6682\u4E0D\u53EF\u7528\u3002");
+      new import_obsidian.Notice("\u8DE8\u4ED3\u5E93\u7D22\u5F15\u5C1A\u672A\u5C31\u7EEA\uFF0C\u8BF7\u7A0D\u540E\u518D\u8BD5\u3002");
       return [];
     }
   }
@@ -270,11 +280,11 @@ ${noteStage.query}`;
       window.setTimeout(() => this.open(), 0);
       return;
     }
-    const path = item.note.relativePath.replace(/\.md$/i, "");
+    const path3 = item.note.relativePath.replace(/\.md$/i, "");
     const fileTitle = item.note.fileName.replace(/\.md$/i, "");
     const insert = serializeCrossVaultLink({
       vaultName: item.note.vaultName,
-      notePath: path,
+      notePath: path3,
       alias: item.note.title !== fileTitle ? item.note.title : void 0,
       embed: false
     });
@@ -285,107 +295,266 @@ function createCrossVaultSuggest(app, client) {
   return new CrossVaultSuggest(app, client);
 }
 
-// src/hubClient.ts
-var import_obsidian2 = require("obsidian");
-var HubClient = class {
+// src/localClient.ts
+var import_fs2 = require("fs");
+var path2 = __toESM(require("path"), 1);
+
+// src/localIndex.ts
+var import_fs = require("fs");
+var path = __toESM(require("path"), 1);
+var IGNORED_DIRECTORIES = [".obsidian", ".git", ".trash", "node_modules", "target", "dist"];
+function frontmatterValues(contents, key) {
+  if (!contents.startsWith("---\n")) return [];
+  const end = contents.indexOf("\n---", 4);
+  if (end < 0) return [];
+  const frontmatter = contents.slice(4, end);
+  const line = frontmatter.split("\n").find((candidate) => candidate.trimStart().startsWith(`${key}:`));
+  if (!line) return [];
+  const colon = line.indexOf(":");
+  const value = line.slice(colon + 1).trim();
+  return value.replace(/^\[|\]$/g, "").split(",").map((item) => item.trim().replace(/^["']|["']$/g, "")).filter((item) => item.length > 0);
+}
+function firstHeading(contents) {
+  for (const line of contents.split("\n")) {
+    if (line.startsWith("# ")) {
+      const title = line.slice(2).trim();
+      if (title) return title;
+    }
+  }
+  return void 0;
+}
+async function scanDirectory(root, directory, vault, notes) {
+  let entries;
+  try {
+    entries = await import_fs.promises.readdir(directory, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (entry.isSymbolicLink()) continue;
+    const fullPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name.startsWith(".") || IGNORED_DIRECTORIES.some((name) => name.toLowerCase() === entry.name.toLowerCase())) {
+        continue;
+      }
+      await scanDirectory(root, fullPath, vault, notes);
+    } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".md")) {
+      const relativePath = path.relative(root, fullPath).replace(/\\/g, "/");
+      let contents = "";
+      try {
+        contents = await import_fs.promises.readFile(fullPath, "utf8");
+      } catch {
+      }
+      let modifiedAt = 0;
+      let size = 0;
+      try {
+        const stats = await import_fs.promises.stat(fullPath);
+        modifiedAt = Math.floor(stats.mtimeMs);
+        size = stats.size;
+      } catch {
+      }
+      notes.push({
+        id: `${vault.id}:${relativePath.toLowerCase()}`,
+        vaultId: vault.id,
+        vaultName: vault.name,
+        relativePath,
+        fileName: entry.name,
+        title: firstHeading(contents) ?? entry.name.replace(/\.md$/i, ""),
+        aliases: frontmatterValues(contents, "aliases"),
+        tags: frontmatterValues(contents, "tags"),
+        modifiedAt,
+        size
+      });
+    }
+  }
+}
+async function scanVault(vault) {
+  const notes = [];
+  try {
+    const stats = await import_fs.promises.stat(vault.path);
+    if (stats.isDirectory()) {
+      await scanDirectory(vault.path, vault.path, vault, notes);
+    }
+  } catch {
+  }
+  return notes;
+}
+function searchNotes(notes, options) {
+  const terms = options.query.toLowerCase().split(/\s+/).filter((term) => term.length > 0);
+  const ranked = [];
+  for (const note of notes) {
+    if (options.excludeVaultId && note.vaultId === options.excludeVaultId) continue;
+    if (options.vaultId && note.vaultId !== options.vaultId) continue;
+    const title = note.title.toLowerCase();
+    const relativePath = note.relativePath.toLowerCase();
+    const aliases = note.aliases.join(" ").toLowerCase();
+    if (!terms.every(
+      (term) => title.includes(term) || relativePath.includes(term) || aliases.includes(term)
+    )) {
+      continue;
+    }
+    const score = terms.reduce((sum, term) => {
+      if (title === term) return sum + 100;
+      if (title.startsWith(term)) return sum + 50;
+      if (title.includes(term)) return sum + 25;
+      if (aliases.includes(term)) return sum + 15;
+      return sum + 5;
+    }, 0);
+    ranked.push([score, note]);
+  }
+  ranked.sort((a, b) => b[0] - a[0] || a[1].title.localeCompare(b[1].title));
+  return ranked.slice(0, Math.min(options.limit, 50)).map(([, note]) => note);
+}
+function folderName(item) {
+  return item.kind === "folder" ? item.name : "";
+}
+function noteTitle(item) {
+  return item.kind === "note" ? item.note.title : "";
+}
+function browseNotes(notes, vaultId, directory, query, limit) {
+  const trimmed = directory.replace(/^\/+|\/+$/g, "");
+  const prefix = trimmed ? `${trimmed}/` : "";
+  const normalizedQuery = query.trim().toLowerCase();
+  let items;
+  if (!normalizedQuery) {
+    const folders = /* @__PURE__ */ new Map();
+    const files = [];
+    for (const note of notes) {
+      if (note.vaultId !== vaultId || !note.relativePath.startsWith(prefix)) continue;
+      const remainder = note.relativePath.slice(prefix.length);
+      const slash = remainder.indexOf("/");
+      if (slash >= 0) {
+        const folder = remainder.slice(0, slash);
+        const key = folder.toLowerCase();
+        if (!folders.has(key)) {
+          folders.set(key, {
+            kind: "folder",
+            name: folder,
+            path: trimmed ? `${trimmed}/${folder}` : folder
+          });
+        }
+      } else {
+        files.push({ kind: "note", note });
+      }
+    }
+    const folderList = [...folders.values()].sort(
+      (a, b) => folderName(a).localeCompare(folderName(b))
+    );
+    files.sort((a, b) => noteTitle(a).localeCompare(noteTitle(b)));
+    items = [...folderList, ...files];
+  } else {
+    const terms = normalizedQuery.split(/\s+/).filter((term) => term.length > 0);
+    items = notes.filter((note) => note.vaultId === vaultId && note.relativePath.startsWith(prefix)).filter((note) => {
+      const haystack = `${note.fileName} ${note.title} ${note.relativePath} ${note.aliases.join(" ")}`.toLowerCase();
+      return terms.every((term) => haystack.includes(term));
+    }).map((note) => ({ kind: "note", note })).sort((a, b) => noteTitle(a).localeCompare(noteTitle(b)));
+  }
+  const total = items.length;
+  const limited = items.slice(0, Math.max(1, Math.min(limit, 5e3)));
+  return { items: limited, total, hasMore: limited.length < total };
+}
+
+// src/localClient.ts
+var MAX_CONTENT_BYTES = 2 * 1024 * 1024;
+var LocalClient = class {
   constructor(settings) {
     this.settings = settings;
   }
+  registeredVaults = [];
+  notes = [];
   currentVaultId() {
     return this.settings().vaultId;
   }
   resultLimit() {
     return this.settings().resultLimit;
   }
-  async request(path, init) {
-    const settings = this.settings();
-    let timeoutId = 0;
-    const timeout = new Promise((_, reject) => {
-      timeoutId = window.setTimeout(
-        () => reject(new Error("HUB_REQUEST_TIMEOUT")),
-        settings.requestTimeoutMs
-      );
-    });
-    try {
-      const response = await Promise.race([
-        (0, import_obsidian2.requestUrl)({
-          url: `${settings.apiBaseUrl}${path}`,
-          method: init?.method ?? "GET",
-          body: init?.body,
-          throw: false,
-          headers: {
-            Authorization: `Bearer ${settings.token}`,
-            "Content-Type": "application/json",
-            ...init?.headers
-          }
-        }),
-        timeout
-      ]);
-      if (response.status >= 400) {
-        throw new Error(response.status === 401 ? "UNAUTHORIZED" : "HUB_REQUEST_FAILED");
-      }
-      return response.json;
-    } finally {
-      window.clearTimeout(timeoutId);
-    }
-  }
-  health() {
-    return this.request("/api/v1/health");
+  async load() {
+    const registryPath = this.settings().registryPath;
+    const vaults = registryPath ? readRegistry(registryPath) : [];
+    this.registeredVaults = vaults;
+    const results = await Promise.all(vaults.map((vault) => scanVault(vault)));
+    this.notes = results.flat();
   }
   async vaults() {
-    return (await this.request("/api/v1/vaults")).items;
+    return this.registeredVaults.map(({ id, name }) => ({ id, name }));
   }
   async search(query, vaultId) {
     const settings = this.settings();
-    const params = new URLSearchParams({ q: query, limit: String(settings.resultLimit) });
-    if (settings.excludeCurrentVault && settings.vaultId)
-      params.set("excludeVaultId", settings.vaultId);
-    if (vaultId) params.set("vaultId", vaultId);
-    return (await this.request(`/api/v1/search?${params}`)).items;
-  }
-  browse(vaultId, path, query, limit) {
-    const params = new URLSearchParams({
+    return searchNotes(this.notes, {
+      query,
+      excludeVaultId: settings.excludeCurrentVault && settings.vaultId ? settings.vaultId : void 0,
       vaultId,
-      path,
-      q: query,
-      limit: String(limit)
+      limit: settings.resultLimit
     });
-    return this.request(`/api/v1/notes/browse?${params}`);
   }
-  resolve(vault, path) {
-    return this.request(
-      `/api/v1/notes/resolve?vault=${encodeURIComponent(vault)}&path=${encodeURIComponent(path)}`
+  async browse(vaultId, directory, query, limit) {
+    return browseNotes(this.notes, vaultId, directory, query, limit);
+  }
+  async resolve(vault, notePath) {
+    const targetVault = vault.toLowerCase();
+    const targetPath = notePath.replace(/\.md$/i, "").replace(/\\/g, "/").toLowerCase();
+    const note = this.notes.find(
+      (candidate) => candidate.vaultName.toLowerCase() === targetVault && candidate.relativePath.replace(/\.md$/i, "").toLowerCase() === targetPath
     );
+    if (!note) throw new Error("NOTE_NOT_FOUND");
+    return note;
   }
-  content(note) {
+  async content(note) {
+    const vault = this.registeredVaults.find((candidate) => candidate.id === note.vaultId);
+    if (!vault) throw new Error("VAULT_NOT_FOUND");
+    const relativePath = note.relativePath;
+    if (!relativePath.toLowerCase().endsWith(".md") || relativePath.split("/").some((segment) => segment === "..")) {
+      throw new Error("INVALID_LINK");
+    }
+    let root;
+    let target;
+    try {
+      root = await import_fs2.promises.realpath(vault.path);
+      target = await import_fs2.promises.realpath(path2.join(vault.path, relativePath));
+    } catch {
+      throw new Error("NOTE_NOT_FOUND");
+    }
+    const relative3 = path2.relative(root, target);
+    if (relative3.startsWith("..") || path2.isAbsolute(relative3)) {
+      throw new Error("INVALID_LINK");
+    }
+    const stats = await import_fs2.promises.stat(target).catch(() => {
+      throw new Error("NOTE_NOT_FOUND");
+    });
+    if (stats.size > MAX_CONTENT_BYTES) throw new Error("NOTE_TOO_LARGE");
+    const content = await import_fs2.promises.readFile(target, "utf8").catch(() => {
+      throw new Error("NOTE_READ_FAILED");
+    });
+    return { note, content };
+  }
+  async open(note, heading, blockId) {
     const params = new URLSearchParams({
-      vaultId: note.vaultId,
-      path: note.relativePath
+      vault: note.vaultName,
+      file: note.relativePath.replace(/\.md$/i, "")
     });
-    return this.request(`/api/v1/notes/content?${params}`);
+    if (heading) params.set("heading", heading);
+    if (blockId) params.set("block", blockId);
+    const uri = `obsidian://open?${params.toString()}`;
+    window.open(uri, "_blank");
+    return { uri };
   }
-  heartbeat(payload) {
-    return this.request("/api/v1/bridge/heartbeat", {
-      method: "POST",
-      body: JSON.stringify(payload)
-    });
-  }
-  open(note, heading, blockId) {
-    return this.request("/api/v1/open", {
-      method: "POST",
-      body: JSON.stringify({
-        vaultId: note.vaultId,
-        relativePath: note.relativePath,
-        heading: heading ?? null,
-        blockId: blockId ?? null
-      })
-    });
+  async health() {
+    return { status: "ok" };
   }
 };
+function readRegistry(registryPath) {
+  let registry;
+  try {
+    registry = JSON.parse((0, import_fs2.readFileSync)(registryPath, "utf8"));
+  } catch {
+    return [];
+  }
+  return (registry.vaults ?? []).filter((vault) => vault.id && vault.name && vault.path).map(({ id, name, path: vaultPath }) => ({ id, name, path: vaultPath }));
+}
 
 // src/previewModal.ts
-var import_obsidian3 = require("obsidian");
-var CrossVaultPreviewModal = class extends import_obsidian3.Modal {
+var import_obsidian2 = require("obsidian");
+var CrossVaultPreviewModal = class extends import_obsidian2.Modal {
   constructor(app, preview, openInVault) {
     super(app);
     this.preview = preview;
@@ -400,15 +569,15 @@ var CrossVaultPreviewModal = class extends import_obsidian3.Modal {
       text: `${this.preview.note.vaultName} \xB7 ${this.preview.note.relativePath}`
     });
     const body = this.contentEl.createDiv({ cls: "markdown-preview-view" });
-    this.renderer = new import_obsidian3.Component();
+    this.renderer = new import_obsidian2.Component();
     this.renderer.load();
-    void import_obsidian3.MarkdownRenderer.render(
+    void import_obsidian2.MarkdownRenderer.render(
       this.app,
       this.preview.content,
       body,
       this.preview.note.relativePath,
       this.renderer
-    ).catch(() => new import_obsidian3.Notice("\u65E0\u6CD5\u6E32\u67D3\u8DE8\u4ED3\u5E93\u7B14\u8BB0\u9884\u89C8\u3002"));
+    ).catch(() => new import_obsidian2.Notice("\u65E0\u6CD5\u6E32\u67D3\u8DE8\u4ED3\u5E93\u7B14\u8BB0\u9884\u89C8\u3002"));
     const actions = this.contentEl.createDiv({ cls: "obsidian-hub-preview-actions" });
     const openButton = actions.createEl("button", {
       cls: "mod-cta",
@@ -418,7 +587,7 @@ var CrossVaultPreviewModal = class extends import_obsidian3.Modal {
       openButton.disabled = true;
       void this.openInVault().then(() => this.close()).catch(() => {
         openButton.disabled = false;
-        new import_obsidian3.Notice("\u65E0\u6CD5\u5728\u76EE\u6807\u4ED3\u5E93\u6253\u5F00\u7B14\u8BB0\u3002");
+        new import_obsidian2.Notice("\u65E0\u6CD5\u5728\u76EE\u6807\u4ED3\u5E93\u6253\u5F00\u7B14\u8BB0\u3002");
       });
     });
     const closeButton = actions.createEl("button", { text: "\u5173\u95ED" });
@@ -433,13 +602,11 @@ var CrossVaultPreviewModal = class extends import_obsidian3.Modal {
 
 // src/types.ts
 var DEFAULT_SETTINGS = {
-  apiBaseUrl: "http://127.0.0.1:27124",
-  token: "",
+  registryPath: "",
   vaultId: "",
   excludeCurrentVault: true,
   showCrossVaultIcon: true,
-  resultLimit: 20,
-  requestTimeoutMs: 1500
+  resultLimit: 20
 };
 
 // src/main.ts
@@ -523,10 +690,9 @@ function createCrossVaultDecorations(onOpen) {
     { decorations: (value) => value.decorations }
   );
 }
-var ObsidianHubBridge = class extends import_obsidian4.Plugin {
+var ObsidianHubBridge = class extends import_obsidian3.Plugin {
   settings = DEFAULT_SETTINGS;
-  client = new HubClient(() => this.settings);
-  heartbeatId;
+  client = new LocalClient(() => this.settings);
   previewModal;
   async onload() {
     this.settings = {
@@ -541,27 +707,13 @@ var ObsidianHubBridge = class extends import_obsidian4.Plugin {
     this.registerEditorSuggest(createCrossVaultSuggest(this.app, this.client));
     this.registerMarkdownPostProcessor((element) => this.renderReadingLinks(element));
     this.addSettingTab(new BridgeSettingTab(this.app, this));
-    void this.sendHeartbeat();
-    this.heartbeatId = window.setInterval(() => void this.sendHeartbeat(), 45e3);
+    void this.client.load();
     this.register(() => {
-      if (this.heartbeatId) window.clearInterval(this.heartbeatId);
       this.previewModal?.close();
     });
   }
   async saveSettings() {
     await this.saveData(this.settings);
-  }
-  async sendHeartbeat() {
-    if (!this.settings.vaultId || !this.settings.token) return;
-    try {
-      await this.client.heartbeat({
-        vaultId: this.settings.vaultId,
-        vaultName: this.app.vault.getName(),
-        pluginVersion: this.manifest.version,
-        obsidianVersion: import_obsidian4.apiVersion
-      });
-    } catch {
-    }
   }
   renderReadingLinks(element) {
     for (const anchor of element.querySelectorAll("a.internal-link")) {
@@ -609,9 +761,9 @@ ${link.notePath}`;
       node.replaceWith(fragment);
     }
   }
-  async openLink(vault, path) {
+  async openLink(vault, path3) {
     try {
-      const note = await this.client.resolve(vault, path);
+      const note = await this.client.resolve(vault, path3);
       const preview = await this.client.content(note);
       this.previewModal?.close();
       this.previewModal = new CrossVaultPreviewModal(
@@ -621,11 +773,11 @@ ${link.notePath}`;
       );
       this.previewModal.open();
     } catch {
-      new import_obsidian4.Notice("\u65E0\u6CD5\u52A0\u8F7D\u8DE8\u4ED3\u5E93\u7B14\u8BB0\u9884\u89C8\uFF0C\u8BF7\u786E\u8BA4 Hub \u6B63\u5728\u8FD0\u884C\u4E14\u76EE\u6807\u7B14\u8BB0\u5B58\u5728\u3002");
+      new import_obsidian3.Notice("\u65E0\u6CD5\u52A0\u8F7D\u8DE8\u4ED3\u5E93\u7B14\u8BB0\u9884\u89C8\uFF0C\u8BF7\u786E\u8BA4\u76EE\u6807\u7B14\u8BB0\u5B58\u5728\u4E14\u53EF\u8BFB\u53D6\u3002");
     }
   }
 };
-var BridgeSettingTab = class extends import_obsidian4.PluginSettingTab {
+var BridgeSettingTab = class extends import_obsidian3.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -634,33 +786,30 @@ var BridgeSettingTab = class extends import_obsidian4.PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.createEl("h2", { text: "Obsidian Hub Bridge" });
-    new import_obsidian4.Setting(containerEl).setName("Hub \u670D\u52A1\u5730\u5740").addText(
-      (text) => text.setValue(this.plugin.settings.apiBaseUrl).onChange(async (value) => {
-        this.plugin.settings.apiBaseUrl = value;
+    new import_obsidian3.Setting(containerEl).setName("\u767B\u8BB0\u8868\u8DEF\u5F84").setDesc("Hub \u4ED3\u5E93\u767B\u8BB0\u8868 config.json \u7684\u7EDD\u5BF9\u8DEF\u5F84\uFF0C\u7531 Hub \u5B89\u88C5\u65F6\u5199\u5165\u3002").addText(
+      (text) => text.setValue(this.plugin.settings.registryPath).onChange(async (value) => {
+        this.plugin.settings.registryPath = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian4.Setting(containerEl).setName("\u5F53\u524D\u4ED3\u5E93 ID").addText(
+    new import_obsidian3.Setting(containerEl).setName("\u5F53\u524D\u4ED3\u5E93 ID").addText(
       (text) => text.setValue(this.plugin.settings.vaultId).onChange(async (value) => {
         this.plugin.settings.vaultId = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian4.Setting(containerEl).setName("\u8BBF\u95EE\u4EE4\u724C").setDesc(this.plugin.settings.token ? "\u5DF2\u914D\u7F6E" : "\u672A\u914D\u7F6E");
-    new import_obsidian4.Setting(containerEl).setName("\u6392\u9664\u5F53\u524D\u4ED3\u5E93").addToggle(
+    new import_obsidian3.Setting(containerEl).setName("\u6392\u9664\u5F53\u524D\u4ED3\u5E93").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.excludeCurrentVault).onChange(async (value) => {
         this.plugin.settings.excludeCurrentVault = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian4.Setting(containerEl).setName("\u6D4B\u8BD5\u8FDE\u63A5").addButton(
-      (button) => button.setButtonText("\u6D4B\u8BD5").onClick(async () => {
-        try {
-          await this.plugin["client"].health();
-          new import_obsidian4.Notice("\u5DF2\u8FDE\u63A5\u5230 Obsidian Hub\u3002");
-        } catch {
-          new import_obsidian4.Notice("Obsidian Hub \u672A\u8FD0\u884C\u6216\u8BA4\u8BC1\u5931\u8D25\u3002");
-        }
+    new import_obsidian3.Setting(containerEl).setName("\u91CD\u65B0\u626B\u63CF\u7D22\u5F15").addButton(
+      (button) => button.setButtonText("\u626B\u63CF").onClick(async () => {
+        button.setDisabled(true);
+        await this.plugin["client"].load();
+        button.setDisabled(false);
+        new import_obsidian3.Notice("\u8DE8\u4ED3\u5E93\u7D22\u5F15\u5DF2\u5237\u65B0\u3002");
       })
     );
   }

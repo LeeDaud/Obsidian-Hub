@@ -10,7 +10,7 @@ import {
 import { serializeCrossVaultLink } from '@obsidian-hub/cross-vault-parser';
 import type { HubVault, IndexedNote } from '@obsidian-hub/protocol';
 import { findCompletionTrigger } from './completionContext';
-import type { HubClient } from './hubClient';
+import type { LocalClient } from './localClient';
 
 type CompletionItem =
   | { kind: 'vault'; vault: HubVault }
@@ -24,7 +24,7 @@ class CrossVaultSuggest extends EditorSuggest<CompletionItem> {
 
   constructor(
     app: App,
-    private readonly client: HubClient,
+    private readonly client: LocalClient,
   ) {
     super(app);
     this.setInstructions([
@@ -90,7 +90,7 @@ class CrossVaultSuggest extends EditorSuggest<CompletionItem> {
       }
       return items;
     } catch {
-      new Notice('Obsidian Hub 暂不可用。');
+      new Notice('跨仓库索引尚未就绪，请稍后再试。');
       return [];
     }
   }
@@ -155,6 +155,6 @@ class CrossVaultSuggest extends EditorSuggest<CompletionItem> {
   }
 }
 
-export function createCrossVaultSuggest(app: App, client: HubClient) {
+export function createCrossVaultSuggest(app: App, client: LocalClient) {
   return new CrossVaultSuggest(app, client);
 }
