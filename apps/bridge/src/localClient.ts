@@ -4,12 +4,14 @@ import type {
   HubVault,
   IndexedNote,
   NoteContentResponse,
+  VaultBrowseItem,
   VaultBrowseResponse,
 } from '@obsidian-hub/protocol';
-import { browseNotes, scanVault, searchNotes, type RegisteredVault } from './localIndex';
+import { browseNotes, scanDirectoryLevel, scanVault, type RegisteredVault } from './localIndex';
 import type { BridgeSettings } from './types';
 
 const MAX_CONTENT_BYTES = 2 * 1024 * 1024;
+const SCAN_CACHE_TTL_MS = 3000;
 
 interface RegistryVault {
   id: string;
@@ -22,9 +24,14 @@ interface RegistryFile {
   vaults: RegistryVault[];
 }
 
+interface ScanCacheEntry {
+  notes: IndexedNote[];
+  at: number;
+}
+
 export class LocalClient {
   private registeredVaults: RegisteredVault[] = [];
-  private notes: IndexedNote[] = [];
+  private scanCache = new Map<string, ScanCacheEntry>();
 
   constructor(private readonly settings: () => BridgeSettings) {}
 
@@ -38,25 +45,12 @@ export class LocalClient {
 
   async load(): Promise<void> {
     const registryPath = this.settings().registryPath;
-    const vaults = registryPath ? readRegistry(registryPath) : [];
-    this.registeredVaults = vaults;
-    const results = await Promise.all(vaults.map((vault) => scanVault(vault)));
-    this.notes = results.flat();
+    this.registeredVaults = registryPath ? readRegistry(registryPath) : [];
+    this.scanCache.clear();
   }
 
   async vaults(): Promise<HubVault[]> {
     return this.registeredVaults.map(({ id, name }) => ({ id, name }));
-  }
-
-  async search(query: string, vaultId?: string): Promise<IndexedNote[]> {
-    const settings = this.settings();
-    return searchNotes(this.notes, {
-      query,
-      excludeVaultId:
-        settings.excludeCurrentVault && settings.vaultId ? settings.vaultId : undefined,
-      vaultId,
-      limit: settings.resultLimit,
-    });
   }
 
   async browse(
@@ -65,16 +59,39 @@ export class LocalClient {
     query: string,
     limit: number,
   ): Promise<VaultBrowseResponse> {
-    return browseNotes(this.notes, vaultId, directory, query, limit);
+    const vault = this.registeredVaults.find((candidate) => candidate.id === vaultId);
+    if (!vault) return { items: [], total: 0, hasMore: false };
+    if (!query.trim()) {
+      return this.browseLevel(vault, directory, limit);
+    }
+    const notes = await this.scanVaultCached(vaultId);
+    return browseNotes(notes, vaultId, directory, query, limit);
+  }
+
+  private async browseLevel(
+    vault: RegisteredVault,
+    directory: string,
+    limit: number,
+  ): Promise<VaultBrowseResponse> {
+    const level = await scanDirectoryLevel(vault, directory);
+    const items: VaultBrowseItem[] = [
+      ...level.folders.map((folder) => ({ kind: 'folder' as const, ...folder })),
+      ...level.notes.map((note) => ({ kind: 'note' as const, note })),
+    ];
+    const total = items.length;
+    const limited = items.slice(0, Math.max(1, Math.min(limit, 5000)));
+    return { items: limited, total, hasMore: limited.length < total };
   }
 
   async resolve(vault: string, notePath: string): Promise<IndexedNote> {
-    const targetVault = vault.toLowerCase();
+    const targetVault = this.registeredVaults.find(
+      (candidate) => candidate.name.toLowerCase() === vault.toLowerCase(),
+    );
+    if (!targetVault) throw new Error('NOTE_NOT_FOUND');
+    const notes = await this.scanVaultCached(targetVault.id);
     const targetPath = notePath.replace(/\.md$/i, '').replace(/\\/g, '/').toLowerCase();
-    const note = this.notes.find(
-      (candidate) =>
-        candidate.vaultName.toLowerCase() === targetVault &&
-        candidate.relativePath.replace(/\.md$/i, '').toLowerCase() === targetPath,
+    const note = notes.find(
+      (candidate) => candidate.relativePath.replace(/\.md$/i, '').toLowerCase() === targetPath,
     );
     if (!note) throw new Error('NOTE_NOT_FOUND');
     return note;
@@ -126,6 +143,19 @@ export class LocalClient {
 
   async health(): Promise<{ status: string }> {
     return { status: 'ok' };
+  }
+
+  private async scanVaultCached(vaultId: string): Promise<IndexedNote[]> {
+    const cached = this.scanCache.get(vaultId);
+    const now = Date.now();
+    if (cached && now - cached.at < SCAN_CACHE_TTL_MS) {
+      return cached.notes;
+    }
+    const vault = this.registeredVaults.find((candidate) => candidate.id === vaultId);
+    if (!vault) return [];
+    const notes = await scanVault(vault);
+    this.scanCache.set(vaultId, { notes, at: now });
+    return notes;
   }
 }
 

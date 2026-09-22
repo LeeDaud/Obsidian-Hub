@@ -323,6 +323,34 @@ function firstHeading(contents) {
   }
   return void 0;
 }
+async function buildNote(vault, root, fullPath, fileName) {
+  const relativePath = path.relative(root, fullPath).replace(/\\/g, "/");
+  let contents = "";
+  try {
+    contents = await import_fs.promises.readFile(fullPath, "utf8");
+  } catch {
+  }
+  let modifiedAt = 0;
+  let size = 0;
+  try {
+    const stats = await import_fs.promises.stat(fullPath);
+    modifiedAt = Math.floor(stats.mtimeMs);
+    size = stats.size;
+  } catch {
+  }
+  return {
+    id: `${vault.id}:${relativePath.toLowerCase()}`,
+    vaultId: vault.id,
+    vaultName: vault.name,
+    relativePath,
+    fileName,
+    title: firstHeading(contents) ?? fileName.replace(/\.md$/i, ""),
+    aliases: frontmatterValues(contents, "aliases"),
+    tags: frontmatterValues(contents, "tags"),
+    modifiedAt,
+    size
+  };
+}
 async function scanDirectory(root, directory, vault, notes) {
   let entries;
   try {
@@ -339,32 +367,7 @@ async function scanDirectory(root, directory, vault, notes) {
       }
       await scanDirectory(root, fullPath, vault, notes);
     } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".md")) {
-      const relativePath = path.relative(root, fullPath).replace(/\\/g, "/");
-      let contents = "";
-      try {
-        contents = await import_fs.promises.readFile(fullPath, "utf8");
-      } catch {
-      }
-      let modifiedAt = 0;
-      let size = 0;
-      try {
-        const stats = await import_fs.promises.stat(fullPath);
-        modifiedAt = Math.floor(stats.mtimeMs);
-        size = stats.size;
-      } catch {
-      }
-      notes.push({
-        id: `${vault.id}:${relativePath.toLowerCase()}`,
-        vaultId: vault.id,
-        vaultName: vault.name,
-        relativePath,
-        fileName: entry.name,
-        title: firstHeading(contents) ?? entry.name.replace(/\.md$/i, ""),
-        aliases: frontmatterValues(contents, "aliases"),
-        tags: frontmatterValues(contents, "tags"),
-        modifiedAt,
-        size
-      });
+      notes.push(await buildNote(vault, root, fullPath, entry.name));
     }
   }
 }
@@ -379,31 +382,34 @@ async function scanVault(vault) {
   }
   return notes;
 }
-function searchNotes(notes, options) {
-  const terms = options.query.toLowerCase().split(/\s+/).filter((term) => term.length > 0);
-  const ranked = [];
-  for (const note of notes) {
-    if (options.excludeVaultId && note.vaultId === options.excludeVaultId) continue;
-    if (options.vaultId && note.vaultId !== options.vaultId) continue;
-    const title = note.title.toLowerCase();
-    const relativePath = note.relativePath.toLowerCase();
-    const aliases = note.aliases.join(" ").toLowerCase();
-    if (!terms.every(
-      (term) => title.includes(term) || relativePath.includes(term) || aliases.includes(term)
-    )) {
-      continue;
-    }
-    const score = terms.reduce((sum, term) => {
-      if (title === term) return sum + 100;
-      if (title.startsWith(term)) return sum + 50;
-      if (title.includes(term)) return sum + 25;
-      if (aliases.includes(term)) return sum + 15;
-      return sum + 5;
-    }, 0);
-    ranked.push([score, note]);
+async function scanDirectoryLevel(vault, directory) {
+  const normalized = directory.replace(/^\/+|\/+$/g, "");
+  const root = vault.path;
+  const targetDirectory = normalized ? path.join(root, ...normalized.split("/")) : root;
+  let entries;
+  try {
+    entries = await import_fs.promises.readdir(targetDirectory, { withFileTypes: true });
+  } catch {
+    return { folders: [], notes: [] };
   }
-  ranked.sort((a, b) => b[0] - a[0] || a[1].title.localeCompare(b[1].title));
-  return ranked.slice(0, Math.min(options.limit, 50)).map(([, note]) => note);
+  const folders = [];
+  const notes = [];
+  for (const entry of entries) {
+    if (entry.isSymbolicLink()) continue;
+    const fullPath = path.join(targetDirectory, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name.startsWith(".") || IGNORED_DIRECTORIES.some((name) => name.toLowerCase() === entry.name.toLowerCase())) {
+        continue;
+      }
+      const childPath = normalized ? `${normalized}/${entry.name}` : entry.name;
+      folders.push({ name: entry.name, path: childPath });
+    } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".md")) {
+      notes.push(await buildNote(vault, root, fullPath, entry.name));
+    }
+  }
+  folders.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+  notes.sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase()));
+  return { folders, notes };
 }
 function folderName(item) {
   return item.kind === "folder" ? item.name : "";
@@ -456,12 +462,13 @@ function browseNotes(notes, vaultId, directory, query, limit) {
 
 // src/localClient.ts
 var MAX_CONTENT_BYTES = 2 * 1024 * 1024;
+var SCAN_CACHE_TTL_MS = 3e3;
 var LocalClient = class {
   constructor(settings) {
     this.settings = settings;
   }
   registeredVaults = [];
-  notes = [];
+  scanCache = /* @__PURE__ */ new Map();
   currentVaultId() {
     return this.settings().vaultId;
   }
@@ -470,31 +477,40 @@ var LocalClient = class {
   }
   async load() {
     const registryPath = this.settings().registryPath;
-    const vaults = registryPath ? readRegistry(registryPath) : [];
-    this.registeredVaults = vaults;
-    const results = await Promise.all(vaults.map((vault) => scanVault(vault)));
-    this.notes = results.flat();
+    this.registeredVaults = registryPath ? readRegistry(registryPath) : [];
+    this.scanCache.clear();
   }
   async vaults() {
     return this.registeredVaults.map(({ id, name }) => ({ id, name }));
   }
-  async search(query, vaultId) {
-    const settings = this.settings();
-    return searchNotes(this.notes, {
-      query,
-      excludeVaultId: settings.excludeCurrentVault && settings.vaultId ? settings.vaultId : void 0,
-      vaultId,
-      limit: settings.resultLimit
-    });
-  }
   async browse(vaultId, directory, query, limit) {
-    return browseNotes(this.notes, vaultId, directory, query, limit);
+    const vault = this.registeredVaults.find((candidate) => candidate.id === vaultId);
+    if (!vault) return { items: [], total: 0, hasMore: false };
+    if (!query.trim()) {
+      return this.browseLevel(vault, directory, limit);
+    }
+    const notes = await this.scanVaultCached(vaultId);
+    return browseNotes(notes, vaultId, directory, query, limit);
+  }
+  async browseLevel(vault, directory, limit) {
+    const level = await scanDirectoryLevel(vault, directory);
+    const items = [
+      ...level.folders.map((folder) => ({ kind: "folder", ...folder })),
+      ...level.notes.map((note) => ({ kind: "note", note }))
+    ];
+    const total = items.length;
+    const limited = items.slice(0, Math.max(1, Math.min(limit, 5e3)));
+    return { items: limited, total, hasMore: limited.length < total };
   }
   async resolve(vault, notePath) {
-    const targetVault = vault.toLowerCase();
+    const targetVault = this.registeredVaults.find(
+      (candidate) => candidate.name.toLowerCase() === vault.toLowerCase()
+    );
+    if (!targetVault) throw new Error("NOTE_NOT_FOUND");
+    const notes = await this.scanVaultCached(targetVault.id);
     const targetPath = notePath.replace(/\.md$/i, "").replace(/\\/g, "/").toLowerCase();
-    const note = this.notes.find(
-      (candidate) => candidate.vaultName.toLowerCase() === targetVault && candidate.relativePath.replace(/\.md$/i, "").toLowerCase() === targetPath
+    const note = notes.find(
+      (candidate) => candidate.relativePath.replace(/\.md$/i, "").toLowerCase() === targetPath
     );
     if (!note) throw new Error("NOTE_NOT_FOUND");
     return note;
@@ -540,6 +556,18 @@ var LocalClient = class {
   }
   async health() {
     return { status: "ok" };
+  }
+  async scanVaultCached(vaultId) {
+    const cached = this.scanCache.get(vaultId);
+    const now = Date.now();
+    if (cached && now - cached.at < SCAN_CACHE_TTL_MS) {
+      return cached.notes;
+    }
+    const vault = this.registeredVaults.find((candidate) => candidate.id === vaultId);
+    if (!vault) return [];
+    const notes = await scanVault(vault);
+    this.scanCache.set(vaultId, { notes, at: now });
+    return notes;
   }
 };
 function readRegistry(registryPath) {

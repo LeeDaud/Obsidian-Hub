@@ -3,7 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type { IndexedNote } from '@obsidian-hub/protocol';
-import { browseNotes, scanVault, searchNotes, type RegisteredVault } from './localIndex';
+import {
+  browseNotes,
+  scanDirectoryLevel,
+  scanVault,
+  searchNotes,
+  type RegisteredVault,
+} from './localIndex';
 
 let tempDir: string;
 
@@ -61,6 +67,39 @@ describe('scanVault', () => {
   it('returns an empty index for an inaccessible root', async () => {
     const notes = await scanVault({ id: 'v', name: 'V', path: path.join(tempDir, 'missing') });
     expect(notes).toEqual([]);
+  });
+});
+
+describe('scanDirectoryLevel', () => {
+  it('lists only direct children without recursing into subfolders', async () => {
+    const vaultRoot = path.join(tempDir, 'level-vault');
+    mkdirSync(path.join(vaultRoot, 'Projects', 'Deep'), { recursive: true });
+    writeFileSync(path.join(vaultRoot, 'Home.md'), '# Home');
+    writeFileSync(path.join(vaultRoot, 'Projects', 'TCP.md'), '# TCP');
+    writeFileSync(path.join(vaultRoot, 'Projects', 'Deep', 'HTTP.md'), '# HTTP');
+
+    const vault: RegisteredVault = { id: 'v', name: 'V', path: vaultRoot };
+    const root = await scanDirectoryLevel(vault, '');
+    expect(root.folders.map((folder) => folder.name)).toEqual(['Projects']);
+    expect(root.notes.map((entry) => entry.fileName)).toEqual(['Home.md']);
+
+    const projects = await scanDirectoryLevel(vault, 'Projects');
+    expect(projects.folders.map((folder) => folder.name)).toEqual(['Deep']);
+    expect(projects.notes.map((entry) => entry.fileName)).toEqual(['TCP.md']);
+    expect(projects.notes[0].title).toBe('TCP');
+  });
+
+  it('skips ignored and hidden directories at the current level', async () => {
+    const vaultRoot = path.join(tempDir, 'level-ignored');
+    mkdirSync(path.join(vaultRoot, '.obsidian'), { recursive: true });
+    mkdirSync(path.join(vaultRoot, 'node_modules'), { recursive: true });
+    mkdirSync(path.join(vaultRoot, 'Real'), { recursive: true });
+    writeFileSync(path.join(vaultRoot, '.obsidian', 'app.json'), '{}');
+
+    const vault: RegisteredVault = { id: 'v', name: 'V', path: vaultRoot };
+    const root = await scanDirectoryLevel(vault, '');
+    expect(root.folders.map((folder) => folder.name)).toEqual(['Real']);
+    expect(root.notes).toEqual([]);
   });
 });
 

@@ -38,6 +38,42 @@ function firstHeading(contents: string): string | undefined {
   return undefined;
 }
 
+async function buildNote(
+  vault: RegisteredVault,
+  root: string,
+  fullPath: string,
+  fileName: string,
+): Promise<IndexedNote> {
+  const relativePath = path.relative(root, fullPath).replace(/\\/g, '/');
+  let contents = '';
+  try {
+    contents = await fsp.readFile(fullPath, 'utf8');
+  } catch {
+    // 保留空正文，文件仍可被索引
+  }
+  let modifiedAt = 0;
+  let size = 0;
+  try {
+    const stats = await fsp.stat(fullPath);
+    modifiedAt = Math.floor(stats.mtimeMs);
+    size = stats.size;
+  } catch {
+    // 统计失败时保留默认值
+  }
+  return {
+    id: `${vault.id}:${relativePath.toLowerCase()}`,
+    vaultId: vault.id,
+    vaultName: vault.name,
+    relativePath,
+    fileName,
+    title: firstHeading(contents) ?? fileName.replace(/\.md$/i, ''),
+    aliases: frontmatterValues(contents, 'aliases'),
+    tags: frontmatterValues(contents, 'tags'),
+    modifiedAt,
+    size,
+  };
+}
+
 async function scanDirectory(
   root: string,
   directory: string,
@@ -62,34 +98,7 @@ async function scanDirectory(
       }
       await scanDirectory(root, fullPath, vault, notes);
     } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) {
-      const relativePath = path.relative(root, fullPath).replace(/\\/g, '/');
-      let contents = '';
-      try {
-        contents = await fsp.readFile(fullPath, 'utf8');
-      } catch {
-        // 保留空正文，文件仍可被索引
-      }
-      let modifiedAt = 0;
-      let size = 0;
-      try {
-        const stats = await fsp.stat(fullPath);
-        modifiedAt = Math.floor(stats.mtimeMs);
-        size = stats.size;
-      } catch {
-        // 统计失败时保留默认值
-      }
-      notes.push({
-        id: `${vault.id}:${relativePath.toLowerCase()}`,
-        vaultId: vault.id,
-        vaultName: vault.name,
-        relativePath,
-        fileName: entry.name,
-        title: firstHeading(contents) ?? entry.name.replace(/\.md$/i, ''),
-        aliases: frontmatterValues(contents, 'aliases'),
-        tags: frontmatterValues(contents, 'tags'),
-        modifiedAt,
-        size,
-      });
+      notes.push(await buildNote(vault, root, fullPath, entry.name));
     }
   }
 }
@@ -105,6 +114,47 @@ export async function scanVault(vault: RegisteredVault): Promise<IndexedNote[]> 
     // 路径不可访问时返回空索引
   }
   return notes;
+}
+
+export interface DirectoryLevel {
+  folders: Array<{ name: string; path: string }>;
+  notes: IndexedNote[];
+}
+
+export async function scanDirectoryLevel(
+  vault: RegisteredVault,
+  directory: string,
+): Promise<DirectoryLevel> {
+  const normalized = directory.replace(/^\/+|\/+$/g, '');
+  const root = vault.path;
+  const targetDirectory = normalized ? path.join(root, ...normalized.split('/')) : root;
+  let entries: Dirent[];
+  try {
+    entries = await fsp.readdir(targetDirectory, { withFileTypes: true });
+  } catch {
+    return { folders: [], notes: [] };
+  }
+  const folders: Array<{ name: string; path: string }> = [];
+  const notes: IndexedNote[] = [];
+  for (const entry of entries) {
+    if (entry.isSymbolicLink()) continue;
+    const fullPath = path.join(targetDirectory, entry.name);
+    if (entry.isDirectory()) {
+      if (
+        entry.name.startsWith('.') ||
+        IGNORED_DIRECTORIES.some((name) => name.toLowerCase() === entry.name.toLowerCase())
+      ) {
+        continue;
+      }
+      const childPath = normalized ? `${normalized}/${entry.name}` : entry.name;
+      folders.push({ name: entry.name, path: childPath });
+    } else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) {
+      notes.push(await buildNote(vault, root, fullPath, entry.name));
+    }
+  }
+  folders.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+  notes.sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase()));
+  return { folders, notes };
 }
 
 export interface SearchOptions {
