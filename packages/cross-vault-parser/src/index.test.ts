@@ -37,4 +37,27 @@ describe('cross-vault parser', () => {
     expect(raw).toBe('@Vault[[Folder/Note#H|Alias]]');
     expect(parseCrossVaultLink(raw)).toMatchObject({ alias: 'Alias', heading: 'H' });
   });
+
+  it('parses and serializes the stable vault id suffix', () => {
+    expect(parseCrossVaultLink('@Vault:id[[Note]]')).toMatchObject({
+      vaultName: 'Vault',
+      vaultId: 'id',
+      notePath: 'Note',
+    });
+    const raw = serializeCrossVaultLink({
+      vaultName: 'Vault',
+      vaultId: '550e8400-e29b-41d4-a716-446655440000',
+      notePath: 'Folder/Note',
+      embed: false,
+    });
+    expect(raw).toBe('@Vault:550e8400-e29b-41d4-a716-446655440000[[Folder/Note]]');
+    expect(parseCrossVaultLink(raw)).toMatchObject({
+      vaultName: 'Vault',
+      vaultId: '550e8400-e29b-41d4-a716-446655440000',
+    });
+  });
+
+  it('parses legacy name-only links without an id', () => {
+    expect(parseCrossVaultLink('@Vault[[Note]]')?.vaultId).toBeUndefined();
+  });
 });

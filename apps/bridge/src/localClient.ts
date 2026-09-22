@@ -61,6 +61,7 @@ export class LocalClient {
   ): Promise<VaultBrowseResponse> {
     const vault = this.registeredVaults.find((candidate) => candidate.id === vaultId);
     if (!vault) return { items: [], total: 0, hasMore: false };
+    await this.assertVaultAccessible(vault);
     if (!query.trim()) {
       return this.browseLevel(vault, directory, limit);
     }
@@ -83,11 +84,19 @@ export class LocalClient {
     return { items: limited, total, hasMore: limited.length < total };
   }
 
-  async resolve(vault: string, notePath: string): Promise<IndexedNote> {
-    const targetVault = this.registeredVaults.find(
-      (candidate) => candidate.name.toLowerCase() === vault.toLowerCase(),
-    );
+  async resolve(vault: string, notePath: string, vaultId?: string): Promise<IndexedNote> {
+    let targetVault: RegisteredVault | undefined;
+    if (vaultId) {
+      targetVault = this.registeredVaults.find((candidate) => candidate.id === vaultId);
+    } else {
+      const matches = this.registeredVaults.filter(
+        (candidate) => candidate.name.toLowerCase() === vault.toLowerCase(),
+      );
+      if (matches.length > 1) throw new Error('VAULT_AMBIGUOUS');
+      targetVault = matches[0];
+    }
     if (!targetVault) throw new Error('NOTE_NOT_FOUND');
+    await this.assertVaultAccessible(targetVault);
     const notes = await this.scanVaultCached(targetVault.id);
     const targetPath = notePath.replace(/\.md$/i, '').replace(/\\/g, '/').toLowerCase();
     const note = notes.find(
@@ -126,7 +135,45 @@ export class LocalClient {
     const content = await fsp.readFile(target, 'utf8').catch(() => {
       throw new Error('NOTE_READ_FAILED');
     });
-    return { note, content };
+    return { note, content: this.resolveEmbeddedAssets(vault, note, content) };
+  }
+
+  private resolveEmbeddedAssets(
+    vault: RegisteredVault,
+    note: IndexedNote,
+    content: string,
+  ): string {
+    const noteDir = path.dirname(path.join(vault.path, note.relativePath));
+    const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.avif'];
+    const isImage = (target: string) =>
+      imageExtensions.some((extension) => target.toLowerCase().endsWith(extension));
+    const isExternal = (target: string) =>
+      /^(https?:|file:|data:|app:|\/|[a-zA-Z]:)/.test(target.trim());
+
+    const toFileUrl = (target: string): string | null => {
+      if (isExternal(target)) return null;
+      const absolute = path.resolve(noteDir, target);
+      const relative = path.relative(vault.path, absolute);
+      if (relative.startsWith('..') || path.isAbsolute(relative)) return null;
+      return `file:///${absolute.replace(/\\/g, '/')}`;
+    };
+
+    const resolvedMarkdownImages = content.replace(
+      /!\[([^\]]*)\]\(([^)\n]+)\)/g,
+      (full, alt, target) => {
+        const cleanTarget = target.split('#')[0].split('|')[0].trim();
+        if (!isImage(cleanTarget)) return full;
+        const fileUrl = toFileUrl(cleanTarget);
+        return fileUrl ? `![${alt}](${fileUrl})` : full;
+      },
+    );
+
+    return resolvedMarkdownImages.replace(/!\[\[([^\]]+)\]\]/g, (full, target) => {
+      const cleanTarget = target.split('|')[0].split('#')[0].split('^')[0].trim();
+      if (!isImage(cleanTarget)) return full;
+      const fileUrl = toFileUrl(cleanTarget);
+      return fileUrl ? `![](${fileUrl})` : full;
+    });
   }
 
   async open(note: IndexedNote, heading?: string, blockId?: string): Promise<{ uri: string }> {
@@ -143,6 +190,15 @@ export class LocalClient {
 
   async health(): Promise<{ status: string }> {
     return { status: 'ok' };
+  }
+
+  private async assertVaultAccessible(vault: RegisteredVault): Promise<void> {
+    try {
+      const stats = await fsp.stat(vault.path);
+      if (!stats.isDirectory()) throw new Error();
+    } catch {
+      throw new Error(`VAULT_OFFLINE:${vault.name}`);
+    }
   }
 
   private async scanVaultCached(vaultId: string): Promise<IndexedNote[]> {

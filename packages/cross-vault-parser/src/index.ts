@@ -1,6 +1,7 @@
 export interface CrossVaultLink {
   raw: string;
   vaultName: string;
+  vaultId?: string;
   notePath: string;
   alias?: string;
   heading?: string;
@@ -59,6 +60,14 @@ function parseTarget(raw: string, vaultName: string, target: string): CrossVault
   };
 }
 
+export function splitVaultPart(part: string): { name: string; id?: string } {
+  const colon = part.lastIndexOf(':');
+  if (colon > 0 && colon < part.length - 1) {
+    return { name: part.slice(0, colon).trim(), id: part.slice(colon + 1).trim() };
+  }
+  return { name: part.trim() };
+}
+
 function parseAtLink(raw: string): CrossVaultLink | null {
   if (!raw.startsWith('@') && !raw.startsWith('＠')) return null;
   const ascii = raw.indexOf('[[', 1);
@@ -68,7 +77,10 @@ function parseAtLink(raw: string): CrossVaultLink | null {
   const usesFullWidth = open === fullWidth;
   const closer = usesFullWidth ? '】】' : ']]';
   if (!raw.endsWith(closer)) return null;
-  return parseTarget(raw, raw.slice(1, open), raw.slice(open + 2, -2));
+  const { name, id } = splitVaultPart(raw.slice(1, open));
+  const parsed = parseTarget(raw, name, raw.slice(open + 2, -2));
+  if (parsed) parsed.vaultId = id ? unescape(id) : undefined;
+  return parsed;
 }
 
 export function parseCrossVaultLink(raw: string): CrossVaultLink | null {
@@ -111,5 +123,6 @@ export function findCrossVaultLinks(text: string): CrossVaultLinkMatch[] {
 export function serializeCrossVaultLink(link: Omit<CrossVaultLink, 'raw'>): string {
   const suffix = link.heading ? `#${link.heading}` : link.blockId ? `^${link.blockId}` : '';
   const alias = link.alias ? `|${link.alias}` : '';
-  return `@${link.vaultName}[[${link.notePath}${suffix}${alias}]]`;
+  const vault = link.vaultId ? `${link.vaultName}:${link.vaultId}` : link.vaultName;
+  return `@${vault}[[${link.notePath}${suffix}${alias}]]`;
 }

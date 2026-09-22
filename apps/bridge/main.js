@@ -80,6 +80,13 @@ function parseTarget(raw, vaultName, target) {
     embed: false
   };
 }
+function splitVaultPart(part) {
+  const colon = part.lastIndexOf(":");
+  if (colon > 0 && colon < part.length - 1) {
+    return { name: part.slice(0, colon).trim(), id: part.slice(colon + 1).trim() };
+  }
+  return { name: part.trim() };
+}
 function parseAtLink(raw) {
   if (!raw.startsWith("@") && !raw.startsWith("\uFF20")) return null;
   const ascii = raw.indexOf("[[", 1);
@@ -89,7 +96,10 @@ function parseAtLink(raw) {
   const usesFullWidth = open === fullWidth;
   const closer = usesFullWidth ? "\u3011\u3011" : "]]";
   if (!raw.endsWith(closer)) return null;
-  return parseTarget(raw, raw.slice(1, open), raw.slice(open + 2, -2));
+  const { name, id } = splitVaultPart(raw.slice(1, open));
+  const parsed = parseTarget(raw, name, raw.slice(open + 2, -2));
+  if (parsed) parsed.vaultId = id ? unescape(id) : void 0;
+  return parsed;
 }
 function findClosing(text, from, closer) {
   let escaped = false;
@@ -125,7 +135,8 @@ function findCrossVaultLinks(text) {
 function serializeCrossVaultLink(link) {
   const suffix = link.heading ? `#${link.heading}` : link.blockId ? `^${link.blockId}` : "";
   const alias = link.alias ? `|${link.alias}` : "";
-  return `@${link.vaultName}[[${link.notePath}${suffix}${alias}]]`;
+  const vault = link.vaultId ? `${link.vaultName}:${link.vaultId}` : link.vaultName;
+  return `@${vault}[[${link.notePath}${suffix}${alias}]]`;
 }
 
 // src/completion.ts
@@ -228,8 +239,14 @@ ${noteStage.query}`;
         items.push({ kind: "more", cacheKey, nextLimit: limit + pageSize });
       }
       return items;
-    } catch {
-      new import_obsidian.Notice("\u8DE8\u4ED3\u5E93\u7D22\u5F15\u5C1A\u672A\u5C31\u7EEA\uFF0C\u8BF7\u7A0D\u540E\u518D\u8BD5\u3002");
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("VAULT_OFFLINE:")) {
+        new import_obsidian.Notice(
+          `\u4ED3\u5E93\u300C${error.message.slice("VAULT_OFFLINE:".length)}\u300D\u8DEF\u5F84\u4E0D\u53EF\u8BBF\u95EE\uFF0C\u53EF\u80FD\u5DF2\u79BB\u7EBF\u6216\u79FB\u52A8\u3002`
+        );
+      } else {
+        new import_obsidian.Notice("\u8DE8\u4ED3\u5E93\u7D22\u5F15\u5C1A\u672A\u5C31\u7EEA\uFF0C\u8BF7\u7A0D\u540E\u518D\u8BD5\u3002");
+      }
       return [];
     }
   }
@@ -284,6 +301,7 @@ ${noteStage.query}`;
     const fileTitle = item.note.fileName.replace(/\.md$/i, "");
     const insert = serializeCrossVaultLink({
       vaultName: item.note.vaultName,
+      vaultId: item.note.vaultId,
       notePath: path3,
       alias: item.note.title !== fileTitle ? item.note.title : void 0,
       embed: false
@@ -486,6 +504,7 @@ var LocalClient = class {
   async browse(vaultId, directory, query, limit) {
     const vault = this.registeredVaults.find((candidate) => candidate.id === vaultId);
     if (!vault) return { items: [], total: 0, hasMore: false };
+    await this.assertVaultAccessible(vault);
     if (!query.trim()) {
       return this.browseLevel(vault, directory, limit);
     }
@@ -502,11 +521,19 @@ var LocalClient = class {
     const limited = items.slice(0, Math.max(1, Math.min(limit, 5e3)));
     return { items: limited, total, hasMore: limited.length < total };
   }
-  async resolve(vault, notePath) {
-    const targetVault = this.registeredVaults.find(
-      (candidate) => candidate.name.toLowerCase() === vault.toLowerCase()
-    );
+  async resolve(vault, notePath, vaultId) {
+    let targetVault;
+    if (vaultId) {
+      targetVault = this.registeredVaults.find((candidate) => candidate.id === vaultId);
+    } else {
+      const matches = this.registeredVaults.filter(
+        (candidate) => candidate.name.toLowerCase() === vault.toLowerCase()
+      );
+      if (matches.length > 1) throw new Error("VAULT_AMBIGUOUS");
+      targetVault = matches[0];
+    }
     if (!targetVault) throw new Error("NOTE_NOT_FOUND");
+    await this.assertVaultAccessible(targetVault);
     const notes = await this.scanVaultCached(targetVault.id);
     const targetPath = notePath.replace(/\.md$/i, "").replace(/\\/g, "/").toLowerCase();
     const note = notes.find(
@@ -541,7 +568,35 @@ var LocalClient = class {
     const content = await import_fs2.promises.readFile(target, "utf8").catch(() => {
       throw new Error("NOTE_READ_FAILED");
     });
-    return { note, content };
+    return { note, content: this.resolveEmbeddedAssets(vault, note, content) };
+  }
+  resolveEmbeddedAssets(vault, note, content) {
+    const noteDir = path2.dirname(path2.join(vault.path, note.relativePath));
+    const imageExtensions = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".avif"];
+    const isImage = (target) => imageExtensions.some((extension) => target.toLowerCase().endsWith(extension));
+    const isExternal = (target) => /^(https?:|file:|data:|app:|\/|[a-zA-Z]:)/.test(target.trim());
+    const toFileUrl = (target) => {
+      if (isExternal(target)) return null;
+      const absolute = path2.resolve(noteDir, target);
+      const relative3 = path2.relative(vault.path, absolute);
+      if (relative3.startsWith("..") || path2.isAbsolute(relative3)) return null;
+      return `file:///${absolute.replace(/\\/g, "/")}`;
+    };
+    const resolvedMarkdownImages = content.replace(
+      /!\[([^\]]*)\]\(([^)\n]+)\)/g,
+      (full, alt, target) => {
+        const cleanTarget = target.split("#")[0].split("|")[0].trim();
+        if (!isImage(cleanTarget)) return full;
+        const fileUrl = toFileUrl(cleanTarget);
+        return fileUrl ? `![${alt}](${fileUrl})` : full;
+      }
+    );
+    return resolvedMarkdownImages.replace(/!\[\[([^\]]+)\]\]/g, (full, target) => {
+      const cleanTarget = target.split("|")[0].split("#")[0].split("^")[0].trim();
+      if (!isImage(cleanTarget)) return full;
+      const fileUrl = toFileUrl(cleanTarget);
+      return fileUrl ? `![](${fileUrl})` : full;
+    });
   }
   async open(note, heading, blockId) {
     const params = new URLSearchParams({
@@ -556,6 +611,14 @@ var LocalClient = class {
   }
   async health() {
     return { status: "ok" };
+  }
+  async assertVaultAccessible(vault) {
+    try {
+      const stats = await import_fs2.promises.stat(vault.path);
+      if (!stats.isDirectory()) throw new Error();
+    } catch {
+      throw new Error(`VAULT_OFFLINE:${vault.name}`);
+    }
   }
   async scanVaultCached(vaultId) {
     const cached = this.scanCache.get(vaultId);
@@ -693,7 +756,7 @@ ${link.notePath}`;
             widget: new CrossVaultLinkWidget(
               displayLabel(link.alias, link.notePath),
               title,
-              () => onOpen(link.vaultName, link.notePath)
+              () => onOpen(link.vaultName, link.vaultId, link.notePath)
             )
           }).range(from, to)
         );
@@ -728,8 +791,8 @@ var ObsidianHubBridge = class extends import_obsidian3.Plugin {
       ...await this.loadData()
     };
     this.registerEditorExtension(
-      createCrossVaultDecorations((vaultName, notePath) => {
-        void this.openLink(vaultName, notePath);
+      createCrossVaultDecorations((vaultName, vaultId, notePath) => {
+        void this.openLink(vaultName, vaultId, notePath);
       }).extension
     );
     this.registerEditorSuggest(createCrossVaultSuggest(this.app, this.client));
@@ -749,7 +812,7 @@ var ObsidianHubBridge = class extends import_obsidian3.Plugin {
       if (!(previous instanceof Text)) continue;
       const match = previous.data.match(/(?:^|\s)([@＠])([^@\n]+)$/);
       if (!match) continue;
-      const vaultName = match[2].trim();
+      const { name: vaultName, id: vaultId } = splitVaultPart(match[2]);
       const notePath = anchor.dataset.href ?? anchor.getAttribute("data-href") ?? anchor.textContent;
       if (!vaultName || !notePath) continue;
       previous.data = previous.data.slice(0, previous.data.length - match[0].length) + (match[0].startsWith(" ") ? " " : "");
@@ -760,7 +823,7 @@ ${notePath}`;
       anchor.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopImmediatePropagation();
-        void this.openLink(vaultName, notePath);
+        void this.openLink(vaultName, vaultId, notePath);
       });
     }
     const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
@@ -780,7 +843,7 @@ ${notePath}`;
 ${link.notePath}`;
         renderedLink.addEventListener("click", (event) => {
           event.preventDefault();
-          void this.openLink(link.vaultName, link.notePath);
+          void this.openLink(link.vaultName, link.vaultId, link.notePath);
         });
         fragment.append(renderedLink);
         cursor = link.to;
@@ -789,9 +852,9 @@ ${link.notePath}`;
       node.replaceWith(fragment);
     }
   }
-  async openLink(vault, path3) {
+  async openLink(vault, vaultId, path3) {
     try {
-      const note = await this.client.resolve(vault, path3);
+      const note = await this.client.resolve(vault, path3, vaultId);
       const preview = await this.client.content(note);
       this.previewModal?.close();
       this.previewModal = new CrossVaultPreviewModal(
@@ -800,8 +863,14 @@ ${link.notePath}`;
         () => this.client.open(note).then(() => void 0)
       );
       this.previewModal.open();
-    } catch {
-      new import_obsidian3.Notice("\u65E0\u6CD5\u52A0\u8F7D\u8DE8\u4ED3\u5E93\u7B14\u8BB0\u9884\u89C8\uFF0C\u8BF7\u786E\u8BA4\u76EE\u6807\u7B14\u8BB0\u5B58\u5728\u4E14\u53EF\u8BFB\u53D6\u3002");
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("VAULT_OFFLINE:")) {
+        new import_obsidian3.Notice(
+          `\u4ED3\u5E93\u300C${error.message.slice("VAULT_OFFLINE:".length)}\u300D\u8DEF\u5F84\u4E0D\u53EF\u8BBF\u95EE\uFF0C\u53EF\u80FD\u5DF2\u79BB\u7EBF\u6216\u79FB\u52A8\u3002`
+        );
+      } else {
+        new import_obsidian3.Notice("\u65E0\u6CD5\u52A0\u8F7D\u8DE8\u4ED3\u5E93\u7B14\u8BB0\u9884\u89C8\uFF0C\u8BF7\u786E\u8BA4\u76EE\u6807\u7B14\u8BB0\u5B58\u5728\u4E14\u53EF\u8BFB\u53D6\u3002");
+      }
     }
   }
 };

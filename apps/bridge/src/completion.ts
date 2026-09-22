@@ -89,8 +89,14 @@ class CrossVaultSuggest extends EditorSuggest<CompletionItem> {
         items.push({ kind: 'more', cacheKey, nextLimit: limit + pageSize });
       }
       return items;
-    } catch {
-      new Notice('跨仓库索引尚未就绪，请稍后再试。');
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith('VAULT_OFFLINE:')) {
+        new Notice(
+          `仓库「${error.message.slice('VAULT_OFFLINE:'.length)}」路径不可访问，可能已离线或移动。`,
+        );
+      } else {
+        new Notice('跨仓库索引尚未就绪，请稍后再试。');
+      }
       return [];
     }
   }
@@ -147,6 +153,7 @@ class CrossVaultSuggest extends EditorSuggest<CompletionItem> {
     const fileTitle = item.note.fileName.replace(/\.md$/i, '');
     const insert = serializeCrossVaultLink({
       vaultName: item.note.vaultName,
+      vaultId: item.note.vaultId,
       notePath: path,
       alias: item.note.title !== fileTitle ? item.note.title : undefined,
       embed: false,

@@ -7,7 +7,7 @@ import {
   ViewUpdate,
   WidgetType,
 } from '@codemirror/view';
-import { findCrossVaultLinks } from '@obsidian-hub/cross-vault-parser';
+import { findCrossVaultLinks, splitVaultPart } from '@obsidian-hub/cross-vault-parser';
 import { createCrossVaultSuggest } from './completion';
 import { LocalClient } from './localClient';
 import { CrossVaultPreviewModal } from './previewModal';
@@ -54,7 +54,7 @@ function selectionTouchesLink(view: EditorView, from: number, to: number): boole
 
 function decorations(
   view: EditorView,
-  onOpen: (vaultName: string, notePath: string) => void,
+  onOpen: (vaultName: string, vaultId: string | undefined, notePath: string) => void,
 ): DecorationSet {
   const ranges = [];
   for (const range of view.visibleRanges) {
@@ -74,7 +74,7 @@ function decorations(
         ranges.push(
           Decoration.replace({
             widget: new CrossVaultLinkWidget(displayLabel(link.alias, link.notePath), title, () =>
-              onOpen(link.vaultName, link.notePath),
+              onOpen(link.vaultName, link.vaultId, link.notePath),
             ),
           }).range(from, to),
         );
@@ -85,7 +85,7 @@ function decorations(
 }
 
 function createCrossVaultDecorations(
-  onOpen: (vaultName: string, notePath: string) => void,
+  onOpen: (vaultName: string, vaultId: string | undefined, notePath: string) => void,
 ): ViewPlugin<{
   decorations: DecorationSet;
   update(update: ViewUpdate): void;
@@ -117,8 +117,8 @@ export default class ObsidianHubBridge extends Plugin {
       ...((await this.loadData()) as Partial<BridgeSettings> | null),
     };
     this.registerEditorExtension(
-      createCrossVaultDecorations((vaultName, notePath) => {
-        void this.openLink(vaultName, notePath);
+      createCrossVaultDecorations((vaultName, vaultId, notePath) => {
+        void this.openLink(vaultName, vaultId, notePath);
       }).extension,
     );
     this.registerEditorSuggest(createCrossVaultSuggest(this.app, this.client));
@@ -140,7 +140,7 @@ export default class ObsidianHubBridge extends Plugin {
       if (!(previous instanceof Text)) continue;
       const match = previous.data.match(/(?:^|\s)([@＠])([^@\n]+)$/);
       if (!match) continue;
-      const vaultName = match[2].trim();
+      const { name: vaultName, id: vaultId } = splitVaultPart(match[2]);
       const notePath =
         anchor.dataset.href ?? anchor.getAttribute('data-href') ?? anchor.textContent;
       if (!vaultName || !notePath) continue;
@@ -153,7 +153,7 @@ export default class ObsidianHubBridge extends Plugin {
       anchor.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopImmediatePropagation();
-        void this.openLink(vaultName, notePath);
+        void this.openLink(vaultName, vaultId, notePath);
       });
     }
 
@@ -173,7 +173,7 @@ export default class ObsidianHubBridge extends Plugin {
         renderedLink.title = `${link.vaultName}\n${link.notePath}`;
         renderedLink.addEventListener('click', (event) => {
           event.preventDefault();
-          void this.openLink(link.vaultName, link.notePath);
+          void this.openLink(link.vaultName, link.vaultId, link.notePath);
         });
         fragment.append(renderedLink);
         cursor = link.to;
@@ -183,17 +183,23 @@ export default class ObsidianHubBridge extends Plugin {
     }
   }
 
-  private async openLink(vault: string, path: string) {
+  private async openLink(vault: string, vaultId: string | undefined, path: string) {
     try {
-      const note = await this.client.resolve(vault, path);
+      const note = await this.client.resolve(vault, path, vaultId);
       const preview = await this.client.content(note);
       this.previewModal?.close();
       this.previewModal = new CrossVaultPreviewModal(this.app, preview, () =>
         this.client.open(note).then(() => undefined),
       );
       this.previewModal.open();
-    } catch {
-      new Notice('无法加载跨仓库笔记预览，请确认目标笔记存在且可读取。');
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith('VAULT_OFFLINE:')) {
+        new Notice(
+          `仓库「${error.message.slice('VAULT_OFFLINE:'.length)}」路径不可访问，可能已离线或移动。`,
+        );
+      } else {
+        new Notice('无法加载跨仓库笔记预览，请确认目标笔记存在且可读取。');
+      }
     }
   }
 }
