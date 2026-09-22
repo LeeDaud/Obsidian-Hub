@@ -748,12 +748,11 @@ button:disabled {
   color: var(--text-error);
   border-color: color-mix(in srgb, var(--text-error) 35%, transparent);
 }
-.bridge-state--connected {
+.bridge-state--installed {
   color: #72b38d;
   border-color: rgb(114 179 141 / 35%);
 }
-.bridge-state--outdated,
-.bridge-state--installed-disabled {
+.bridge-state--outdated {
   color: #d09a71;
   border-color: rgb(208 154 113 / 35%);
 }

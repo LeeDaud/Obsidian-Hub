@@ -210,13 +210,6 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
   }
 
   async function handleBridgeAction(vault: VaultListItem) {
-    const bridgeState = bridgeStates[vault.id] ?? 'unknown';
-    if (bridgeState === 'installed-disabled') {
-      setStatus(
-        `Bridge 已安装到 ${vault.name}。请在 Obsidian → 设置 → 第三方插件中启用 Obsidian Hub Bridge。`,
-      );
-      return;
-    }
     if (!gateway.installBridge) {
       setError('当前版本不支持安装 Bridge。');
       return;
@@ -226,8 +219,8 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
     setStatus(`正在为 ${vault.name} 安装 Bridge…`);
     try {
       await gateway.installBridge(vault.path, vault.id);
-      setBridgeStates((current) => ({ ...current, [vault.id]: 'installed-disabled' }));
-      setStatus(`Bridge 已安装到 ${vault.name}。请在 Obsidian → 设置 → 第三方插件中手动启用。`);
+      setBridgeStates((current) => ({ ...current, [vault.id]: 'installed' }));
+      setStatus(`Bridge 已自动启用于 ${vault.name}。若 Obsidian 正在运行，重启后生效。`);
     } catch (reason) {
       setBridgeStates((current) => ({ ...current, [vault.id]: 'unknown' }));
       setError(`Bridge 安装失败：${toAppError(reason).message}`);

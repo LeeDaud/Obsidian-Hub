@@ -114,7 +114,7 @@ describe('App', () => {
     await waitFor(() => expect(gateway.launch).toHaveBeenCalledTimes(1));
   });
 
-  it('installs Bridge for an existing vault and shows enable guidance', async () => {
+  it('installs Bridge for an existing vault and shows auto-enabled state', async () => {
     const user = userEvent.setup();
     const gateway = createGateway();
     render(<App gateway={gateway} />);
@@ -124,7 +124,6 @@ describe('App', () => {
     await waitFor(() =>
       expect(gateway.installBridge).toHaveBeenCalledWith('D:\\Notes\\Main', 'main'),
     );
-    expect(await screen.findByText('Bridge 待启用')).toBeInTheDocument();
-    expect(screen.getByText(/第三方插件中手动启用/)).toBeInTheDocument();
+    expect(await screen.findByText('Bridge 已自动启用')).toBeInTheDocument();
   });
 });

@@ -571,7 +571,7 @@ fn bundled_manifest(app: &AppHandle) -> Result<BridgeManifest, AppError> {
 pub async fn bridge_status(
     state: &BridgeState,
     vault_path: &str,
-    vault_id: &str,
+    _vault_id: &str,
 ) -> Result<BridgeStatus, AppError> {
     let bundled_version = bundled_manifest(&state.app)?.version;
     let manifest_path =
@@ -587,21 +587,7 @@ pub async fn bridge_status(
         .ok()
         .and_then(|value| serde_json::from_str::<BridgeManifest>(&value).ok())
         .map(|manifest| manifest.version);
-    let connected = state
-        .heartbeats
-        .read()
-        .await
-        .get(vault_id)
-        .is_some_and(|last_seen| now().saturating_sub(*last_seen) <= 120);
-    let state_name =
-        classify_bridge_state(installed_version.as_deref(), &bundled_version, connected);
-    if state_name == "outdated" {
-        return Ok(BridgeStatus {
-            state: state_name,
-            installed_version,
-            bundled_version,
-        });
-    }
+    let state_name = classify_bridge_state(installed_version.as_deref(), &bundled_version);
     Ok(BridgeStatus {
         state: state_name,
         installed_version,
@@ -609,17 +595,11 @@ pub async fn bridge_status(
     })
 }
 
-fn classify_bridge_state(
-    installed_version: Option<&str>,
-    bundled_version: &str,
-    connected: bool,
-) -> &'static str {
+fn classify_bridge_state(installed_version: Option<&str>, bundled_version: &str) -> &'static str {
     if installed_version != Some(bundled_version) {
         "outdated"
-    } else if connected {
-        "connected"
     } else {
-        "installed-disabled"
+        "installed"
     }
 }
 
@@ -628,19 +608,9 @@ mod tests {
     use super::{classify_bridge_state, is_safe_preview_path};
 
     #[test]
-    fn classifies_installed_bridge_using_version_and_heartbeat() {
-        assert_eq!(
-            classify_bridge_state(Some("0.0.9"), "0.1.0", true),
-            "outdated"
-        );
-        assert_eq!(
-            classify_bridge_state(Some("0.1.0"), "0.1.0", false),
-            "installed-disabled"
-        );
-        assert_eq!(
-            classify_bridge_state(Some("0.1.0"), "0.1.0", true),
-            "connected"
-        );
+    fn classifies_installed_bridge_by_version() {
+        assert_eq!(classify_bridge_state(Some("0.0.9"), "0.1.0"), "outdated");
+        assert_eq!(classify_bridge_state(Some("0.1.0"), "0.1.0"), "installed");
     }
 
     #[test]

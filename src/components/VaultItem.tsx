@@ -34,8 +34,7 @@ export function VaultItem({
   const bridgeLabels: Record<BridgeState, string> = {
     checking: 'Bridge 检查中',
     'not-installed': 'Bridge 未安装',
-    'installed-disabled': 'Bridge 待启用',
-    connected: 'Bridge 已连接',
+    installed: 'Bridge 已自动启用',
     outdated: 'Bridge 可更新',
     unknown: 'Bridge 状态未知',
   };
@@ -44,11 +43,9 @@ export function VaultItem({
       ? '安装 Bridge'
       : bridgeState === 'outdated'
         ? '更新 Bridge'
-        : bridgeState === 'installed-disabled'
-          ? '启用说明'
-          : bridgeState === 'unknown'
-            ? '重试安装'
-            : null;
+        : bridgeState === 'unknown'
+          ? '重试安装'
+          : null;
 
   return (
     <article
