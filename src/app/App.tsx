@@ -36,6 +36,7 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [installingBridgeId, setInstallingBridgeId] = useState<string | null>(null);
+  const [updatingAllBridges, setUpdatingAllBridges] = useState(false);
   const [bridgeStates, setBridgeStates] = useState<Record<string, BridgeState>>({});
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [status, setStatus] = useState('就绪');
@@ -272,6 +273,38 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
     }
   }
 
+  async function updateAllBridges() {
+    if (!config || !gateway.installBridge) return;
+    const outdated = config.vaults.filter(
+      (vault) => bridgeStates[vault.id] === 'outdated' || bridgeStates[vault.id] === 'unknown',
+    );
+    if (outdated.length === 0) {
+      setStatus('所有仓库的 Bridge 都已是最新版本。');
+      return;
+    }
+    setUpdatingAllBridges(true);
+    setError(null);
+    let updated = 0;
+    let failed = 0;
+    for (const vault of outdated) {
+      setStatus(`正在更新 ${vault.name} 的 Bridge…`);
+      try {
+        await gateway.installBridge(vault.path, vault.id);
+        setBridgeStates((current) => ({ ...current, [vault.id]: 'installed' }));
+        updated += 1;
+      } catch {
+        setBridgeStates((current) => ({ ...current, [vault.id]: 'unknown' }));
+        failed += 1;
+      }
+    }
+    setUpdatingAllBridges(false);
+    setStatus(
+      failed > 0
+        ? `已更新 ${updated} 个仓库的 Bridge，${failed} 个失败。`
+        : `已更新 ${updated} 个仓库的 Bridge，重启 Obsidian 后生效。`,
+    );
+  }
+
   async function toggleFavorite(vault: VaultListItem) {
     if (!config) return;
     const nextOrder = vault.favorite
@@ -419,6 +452,9 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
   }
 
   const selectedVault = visibleVaults.find((vault) => vault.id === selectedId) ?? null;
+  const hasOutdatedBridges = (config?.vaults ?? []).some(
+    (vault) => bridgeStates[vault.id] === 'outdated' || bridgeStates[vault.id] === 'unknown',
+  );
 
   return (
     <main className="app-shell">
@@ -485,12 +521,15 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
                 openingId={openingId}
                 installingBridgeId={installingBridgeId}
                 bridgeStates={bridgeStates}
+                hasOutdatedBridges={hasOutdatedBridges}
+                updatingAllBridges={updatingAllBridges}
                 onSelect={setSelectedId}
                 onOpen={(vault) => void launchVault(vault)}
                 onToggleFavorite={(vault) => void toggleFavorite(vault)}
                 onRepair={(vault) => void repairVault(vault)}
                 onRemove={(vault) => void removeVault(vault)}
                 onBridgeAction={(vault) => void handleBridgeAction(vault)}
+                onUpdateAllBridges={() => void updateAllBridges()}
               />
               {!query ? (
                 <QuickActionDock
