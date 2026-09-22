@@ -3,6 +3,7 @@ import type {
   AppConfigV1,
   BridgeState,
   NewVaultInput,
+  ObsidianVaultEntry,
   SortMode,
   VaultEntry,
   VaultListItem,
@@ -190,6 +191,17 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
       }
     }
     return results;
+  }
+
+  async function importObsidianVaults(): Promise<ObsidianVaultEntry[]> {
+    const vaults = await gateway.listObsidianVaults();
+    if (!config) return vaults;
+    const existing = new Set(
+      config.vaults.map((vault) => vault.path.replace(/[\\/]+$/, '').toLocaleLowerCase()),
+    );
+    return vaults.filter(
+      (vault) => !existing.has(vault.path.replace(/[\\/]+$/, '').toLocaleLowerCase()),
+    );
   }
 
   async function addVaults(inputs: NewVaultInput[]) {
@@ -504,6 +516,7 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
       {showAddDialog ? (
         <AddVaultDialog
           onChooseDirectories={chooseDirectories}
+          onImportObsidian={importObsidianVaults}
           onSubmit={addVaults}
           onClose={() => setShowAddDialog(false)}
         />

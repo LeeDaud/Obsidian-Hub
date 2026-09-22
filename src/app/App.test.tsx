@@ -28,6 +28,7 @@ function createGateway(): VaultGateway {
     saveConfig: vi.fn().mockImplementation(async (config) => config),
     chooseDirectory: vi.fn().mockResolvedValue('D:\\Notes\\Main'),
     chooseDirectories: vi.fn().mockResolvedValue(['D:\\Notes\\Main']),
+    listObsidianVaults: vi.fn().mockResolvedValue([]),
     validateDirectory: vi
       .fn()
       .mockResolvedValue({ canonicalPath: 'D:\\Notes\\Main', suggestedName: 'Main' }),

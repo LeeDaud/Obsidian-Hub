@@ -11,6 +11,14 @@ pub struct VaultValidationResult {
     pub suggested_name: String,
 }
 
+#[derive(Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ObsidianVaultEntry {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+}
+
 pub fn validate_vault_directory(path: &str) -> Result<VaultValidationResult, AppError> {
     let input = Path::new(path);
     if !input.exists() {
@@ -45,6 +53,37 @@ pub fn validate_vault_directory(path: &str) -> Result<VaultValidationResult, App
         canonical_path: canonical.to_string_lossy().into_owned(),
         suggested_name: suggested_name.to_owned(),
     })
+}
+
+pub fn list_obsidian_vaults() -> Result<Vec<ObsidianVaultEntry>, AppError> {
+    let appdata = std::env::var("APPDATA")
+        .map_err(|_| AppError::new("OBSIDIAN_CONFIG_NOT_FOUND", "无法定位 Obsidian 配置目录。"))?;
+    let config_path = Path::new(&appdata).join("obsidian").join("obsidian.json");
+    if !config_path.exists() {
+        return Ok(Vec::new());
+    }
+    let contents = fs::read_to_string(&config_path)
+        .map_err(|_| AppError::new("OBSIDIAN_CONFIG_READ_FAILED", "无法读取 Obsidian 配置。"))?;
+    let parsed: serde_json::Value = serde_json::from_str(&contents)
+        .map_err(|_| AppError::new("OBSIDIAN_CONFIG_INVALID", "Obsidian 配置无法解析。"))?;
+    let mut result = Vec::new();
+    if let Some(vaults) = parsed.get("vaults").and_then(serde_json::Value::as_object) {
+        for (id, value) in vaults {
+            let Some(path) = value.get("path").and_then(serde_json::Value::as_str) else {
+                continue;
+            };
+            let name = Path::new(path)
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path.to_owned());
+            result.push(ObsidianVaultEntry {
+                id: id.clone(),
+                name,
+                path: path.to_owned(),
+            });
+        }
+    }
+    Ok(result)
 }
 
 #[cfg(test)]

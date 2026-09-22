@@ -5,6 +5,7 @@ import type {
   AppConfigV1,
   BridgeStatus,
   LaunchTarget,
+  ObsidianVaultEntry,
   VaultOverview,
   VaultValidationResult,
 } from '../domain/vault';
@@ -16,6 +17,7 @@ export interface VaultGateway {
   chooseDirectory(): Promise<string | null>;
   chooseDirectories(): Promise<string[] | null>;
   validateDirectory(path: string): Promise<VaultValidationResult>;
+  listObsidianVaults(): Promise<ObsidianVaultEntry[]>;
   loadOverviewCache(paths: string[]): Promise<VaultOverview | null>;
   scanOverview(paths: string[]): Promise<VaultOverview>;
   launch(target: LaunchTarget): Promise<string>;
@@ -70,6 +72,14 @@ export const tauriVaultGateway: VaultGateway = {
   async validateDirectory(path) {
     try {
       return await invoke<VaultValidationResult>('validate_vault_directory', { path });
+    } catch (reason) {
+      throw toAppError(reason);
+    }
+  },
+
+  async listObsidianVaults() {
+    try {
+      return await invoke<ObsidianVaultEntry[]>('list_obsidian_vaults');
     } catch (reason) {
       throw toAppError(reason);
     }

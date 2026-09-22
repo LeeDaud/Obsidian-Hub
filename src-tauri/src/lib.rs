@@ -51,6 +51,11 @@ fn validate_vault_directory(path: String) -> Result<vault::VaultValidationResult
 }
 
 #[tauri::command]
+fn list_obsidian_vaults() -> Result<Vec<vault::ObsidianVaultEntry>, error::AppError> {
+    vault::list_obsidian_vaults()
+}
+
+#[tauri::command]
 fn launch_obsidian_vault(
     app: tauri::AppHandle,
     target: LaunchTarget,
@@ -91,6 +96,7 @@ pub fn run() {
             load_config,
             save_config,
             validate_vault_directory,
+            list_obsidian_vaults,
             launch_obsidian_vault,
             load_overview_cache,
             scan_vault_overview,

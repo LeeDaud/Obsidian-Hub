@@ -44,6 +44,12 @@ export interface VaultValidationResult {
   suggestedName: string;
 }
 
+export interface ObsidianVaultEntry {
+  id: string;
+  name: string;
+  path: string;
+}
+
 export interface VaultOverview {
   vaultCount: number;
   scannedVaultCount: number;

@@ -1,9 +1,10 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
-import type { NewVaultInput, VaultValidationResult } from '../domain/vault';
+import type { NewVaultInput, ObsidianVaultEntry, VaultValidationResult } from '../domain/vault';
 import { toAppError } from '../domain/appError';
 
 interface AddVaultDialogProps {
   onChooseDirectories(): Promise<VaultValidationResult[]>;
+  onImportObsidian(): Promise<ObsidianVaultEntry[]>;
   onSubmit(inputs: NewVaultInput[]): Promise<void>;
   onClose(): void;
 }
@@ -11,9 +12,15 @@ interface AddVaultDialogProps {
 interface PendingVault {
   path: string;
   name: string;
+  obsidianVaultId?: string;
 }
 
-export function AddVaultDialog({ onChooseDirectories, onSubmit, onClose }: AddVaultDialogProps) {
+export function AddVaultDialog({
+  onChooseDirectories,
+  onImportObsidian,
+  onSubmit,
+  onClose,
+}: AddVaultDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [pending, setPending] = useState<PendingVault[]>([]);
   const [busy, setBusy] = useState(false);
@@ -23,24 +30,57 @@ export function AddVaultDialog({ onChooseDirectories, onSubmit, onClose }: AddVa
     dialogRef.current?.showModal();
   }, []);
 
+  function appendVaults(vaults: Array<{ path: string; name: string; obsidianVaultId?: string }>) {
+    setPending((current) => {
+      const merged = [...current];
+      for (const vault of vaults) {
+        const exists = merged.some(
+          (item) => item.path.toLocaleLowerCase() === vault.path.toLocaleLowerCase(),
+        );
+        if (!exists) {
+          merged.push({
+            path: vault.path,
+            name: vault.name,
+            obsidianVaultId: vault.obsidianVaultId,
+          });
+        }
+      }
+      return merged;
+    });
+  }
+
   async function chooseDirectories() {
     setBusy(true);
     setError(null);
     try {
       const results = await onChooseDirectories();
       if (results.length === 0) return;
-      setPending((current) => {
-        const merged = [...current];
-        for (const result of results) {
-          const exists = merged.some(
-            (item) => item.path.toLocaleLowerCase() === result.canonicalPath.toLocaleLowerCase(),
-          );
-          if (!exists) {
-            merged.push({ path: result.canonicalPath, name: result.suggestedName });
-          }
-        }
-        return merged;
-      });
+      appendVaults(
+        results.map((result) => ({ path: result.canonicalPath, name: result.suggestedName })),
+      );
+    } catch (reason) {
+      setError(toAppError(reason).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function importFromObsidian() {
+    setBusy(true);
+    setError(null);
+    try {
+      const vaults = await onImportObsidian();
+      if (vaults.length === 0) {
+        setError('未发现 Obsidian 已注册的仓库。');
+        return;
+      }
+      appendVaults(
+        vaults.map((vault) => ({
+          path: vault.path,
+          name: vault.name,
+          obsidianVaultId: vault.id,
+        })),
+      );
     } catch (reason) {
       setError(toAppError(reason).message);
     } finally {
@@ -67,7 +107,7 @@ export function AddVaultDialog({ onChooseDirectories, onSubmit, onClose }: AddVa
           path: item.path,
           description: '',
           tags: [],
-          obsidianVaultId: null,
+          obsidianVaultId: item.obsidianVaultId ?? null,
         })),
       );
     } catch (reason) {
@@ -89,7 +129,7 @@ export function AddVaultDialog({ onChooseDirectories, onSubmit, onClose }: AddVa
         <header>
           <div>
             <h2>添加仓库</h2>
-            <p>一次选择多个已初始化的 Obsidian Vault。</p>
+            <p>选择文件夹，或从 Obsidian 已注册仓库一键导入。</p>
           </div>
           <button
             type="button"
@@ -101,9 +141,24 @@ export function AddVaultDialog({ onChooseDirectories, onSubmit, onClose }: AddVa
           </button>
         </header>
         <div className="dialog-fields">
-          <button type="button" className="path-picker" onClick={chooseDirectories} disabled={busy}>
-            选择包含 .obsidian 的文件夹（可多选）
-          </button>
+          <div className="dialog-grid">
+            <button
+              type="button"
+              className="path-picker"
+              onClick={chooseDirectories}
+              disabled={busy}
+            >
+              选择文件夹（可多选）
+            </button>
+            <button
+              type="button"
+              className="path-picker"
+              onClick={importFromObsidian}
+              disabled={busy}
+            >
+              从 Obsidian 导入
+            </button>
+          </div>
           {pending.length > 0 ? (
             <ul className="pending-vault-list">
               {pending.map((item, index) => (
