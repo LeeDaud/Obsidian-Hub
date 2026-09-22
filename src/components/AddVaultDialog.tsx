@@ -3,21 +3,19 @@ import type { NewVaultInput, VaultValidationResult } from '../domain/vault';
 import { toAppError } from '../domain/appError';
 
 interface AddVaultDialogProps {
-  onChooseDirectory(): Promise<VaultValidationResult | null>;
-  onSubmit(input: NewVaultInput): Promise<void>;
+  onChooseDirectories(): Promise<VaultValidationResult[]>;
+  onSubmit(inputs: NewVaultInput[]): Promise<void>;
   onClose(): void;
 }
 
-export function AddVaultDialog({ onChooseDirectory, onSubmit, onClose }: AddVaultDialogProps) {
+interface PendingVault {
+  path: string;
+  name: string;
+}
+
+export function AddVaultDialog({ onChooseDirectories, onSubmit, onClose }: AddVaultDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const [input, setInput] = useState<NewVaultInput>({
-    name: '',
-    path: '',
-    description: '',
-    tags: [],
-    obsidianVaultId: null,
-  });
-  const [tagText, setTagText] = useState('');
+  const [pending, setPending] = useState<PendingVault[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,17 +23,24 @@ export function AddVaultDialog({ onChooseDirectory, onSubmit, onClose }: AddVaul
     dialogRef.current?.showModal();
   }, []);
 
-  async function chooseDirectory() {
+  async function chooseDirectories() {
     setBusy(true);
     setError(null);
     try {
-      const result = await onChooseDirectory();
-      if (result)
-        setInput((current) => ({
-          ...current,
-          name: current.name || result.suggestedName,
-          path: result.canonicalPath,
-        }));
+      const results = await onChooseDirectories();
+      if (results.length === 0) return;
+      setPending((current) => {
+        const merged = [...current];
+        for (const result of results) {
+          const exists = merged.some(
+            (item) => item.path.toLocaleLowerCase() === result.canonicalPath.toLocaleLowerCase(),
+          );
+          if (!exists) {
+            merged.push({ path: result.canonicalPath, name: result.suggestedName });
+          }
+        }
+        return merged;
+      });
     } catch (reason) {
       setError(toAppError(reason).message);
     } finally {
@@ -43,18 +48,28 @@ export function AddVaultDialog({ onChooseDirectory, onSubmit, onClose }: AddVaul
     }
   }
 
+  function updateName(index: number, name: string) {
+    setPending((current) => current.map((item, i) => (i === index ? { ...item, name } : item)));
+  }
+
+  function remove(index: number) {
+    setPending((current) => current.filter((_, i) => i !== index));
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      await onSubmit({
-        ...input,
-        tags: tagText
-          .split(',')
-          .map((tag) => tag.trim())
-          .filter(Boolean),
-      });
+      await onSubmit(
+        pending.map((item) => ({
+          name: item.name,
+          path: item.path,
+          description: '',
+          tags: [],
+          obsidianVaultId: null,
+        })),
+      );
     } catch (reason) {
       setError(toAppError(reason).message);
       setBusy(false);
@@ -74,7 +89,7 @@ export function AddVaultDialog({ onChooseDirectory, onSubmit, onClose }: AddVaul
         <header>
           <div>
             <h2>添加仓库</h2>
-            <p>选择一个已经初始化的 Obsidian Vault。</p>
+            <p>一次选择多个已初始化的 Obsidian Vault。</p>
           </div>
           <button
             type="button"
@@ -86,48 +101,31 @@ export function AddVaultDialog({ onChooseDirectory, onSubmit, onClose }: AddVaul
           </button>
         </header>
         <div className="dialog-fields">
-          <label>
-            <span>仓库目录</span>
-            <button type="button" className="path-picker" onClick={chooseDirectory} disabled={busy}>
-              {input.path || '选择包含 .obsidian 的文件夹'}
-            </button>
-          </label>
-          <label>
-            <span>显示名称</span>
-            <input
-              value={input.name}
-              onChange={(event) => setInput({ ...input, name: event.target.value })}
-              required
-            />
-          </label>
-          <label>
-            <span>简短描述</span>
-            <input
-              value={input.description}
-              onChange={(event) => setInput({ ...input, description: event.target.value })}
-              placeholder="这个仓库主要用来做什么"
-            />
-          </label>
-          <div className="dialog-grid">
-            <label>
-              <span>标签</span>
-              <input
-                value={tagText}
-                onChange={(event) => setTagText(event.target.value)}
-                placeholder="工作, 写作"
-              />
-            </label>
-            <label>
-              <span>Vault ID（可选）</span>
-              <input
-                value={input.obsidianVaultId ?? ''}
-                onChange={(event) =>
-                  setInput({ ...input, obsidianVaultId: event.target.value || null })
-                }
-                placeholder="16 位十六进制 ID"
-              />
-            </label>
-          </div>
+          <button type="button" className="path-picker" onClick={chooseDirectories} disabled={busy}>
+            选择包含 .obsidian 的文件夹（可多选）
+          </button>
+          {pending.length > 0 ? (
+            <ul className="pending-vault-list">
+              {pending.map((item, index) => (
+                <li key={item.path}>
+                  <input
+                    value={item.name}
+                    onChange={(event) => updateName(index, event.target.value)}
+                    aria-label={`仓库 ${index + 1} 名称`}
+                  />
+                  <span className="pending-vault-path">{item.path}</span>
+                  <button
+                    type="button"
+                    className="row-icon-button"
+                    aria-label={`移除 ${item.name}`}
+                    onClick={() => remove(index)}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
         {error ? (
           <p className="dialog-error" role="alert">
@@ -138,12 +136,8 @@ export function AddVaultDialog({ onChooseDirectory, onSubmit, onClose }: AddVaul
           <button type="button" className="secondary-button" onClick={onClose}>
             取消
           </button>
-          <button
-            type="submit"
-            className="primary-button"
-            disabled={busy || !input.path || !input.name.trim()}
-          >
-            {busy ? '保存中…' : '添加仓库'}
+          <button type="submit" className="primary-button" disabled={busy || pending.length === 0}>
+            {busy ? '添加中…' : `添加 ${pending.length} 个仓库`}
           </button>
         </footer>
       </form>

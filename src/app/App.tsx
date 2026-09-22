@@ -178,35 +178,66 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
     return path ? gateway.validateDirectory(path) : null;
   }
 
-  async function addVault(input: NewVaultInput) {
-    if (!config) return;
-    const normalized = input.path.replace(/[\\/]+$/, '').toLocaleLowerCase();
-    if (
-      config.vaults.some(
-        (vault) => vault.path.replace(/[\\/]+$/, '').toLocaleLowerCase() === normalized,
-      )
-    ) {
-      throw new AppError({ code: 'VAULT_DUPLICATE_PATH', message: '这个仓库已经添加到启动器。' });
+  async function chooseDirectories(): Promise<VaultValidationResult[]> {
+    const paths = await gateway.chooseDirectories();
+    if (!paths) return [];
+    const results: VaultValidationResult[] = [];
+    for (const path of paths) {
+      try {
+        results.push(await gateway.validateDirectory(path));
+      } catch {
+        // 跳过无效目录，继续处理其余选择
+      }
     }
+    return results;
+  }
+
+  async function addVaults(inputs: NewVaultInput[]) {
+    if (!config) return;
+    const existingPaths = new Set(
+      config.vaults.map((vault) => vault.path.replace(/[\\/]+$/, '').toLocaleLowerCase()),
+    );
     const now = new Date().toISOString();
-    const entry: VaultEntry = {
-      id: crypto.randomUUID(),
-      ...input,
-      name: input.name.trim(),
-      description: input.description.trim(),
-      tags: [...new Set(input.tags.map((tag) => tag.trim()).filter(Boolean))],
-      favorite: false,
-      favoriteOrder: null,
-      createdAt: now,
-      updatedAt: now,
-      lastOpenedAt: null,
-    };
-    await persist({ ...config, vaults: [...config.vaults, entry] });
-    setPathStatuses((current) => ({ ...current, [entry.id]: 'valid' }));
-    setSelectedId(entry.id);
+    const entries: VaultEntry[] = [];
+    let skipped = 0;
+    for (const input of inputs) {
+      const normalized = input.path.replace(/[\\/]+$/, '').toLocaleLowerCase();
+      if (existingPaths.has(normalized)) {
+        skipped += 1;
+        continue;
+      }
+      existingPaths.add(normalized);
+      entries.push({
+        id: crypto.randomUUID(),
+        ...input,
+        name: input.name.trim(),
+        description: input.description.trim(),
+        tags: [...new Set(input.tags.map((tag) => tag.trim()).filter(Boolean))],
+        favorite: false,
+        favoriteOrder: null,
+        createdAt: now,
+        updatedAt: now,
+        lastOpenedAt: null,
+      });
+    }
+    if (entries.length === 0) {
+      throw new AppError({
+        code: 'VAULT_DUPLICATE_PATH',
+        message: '所选仓库都已经添加过。',
+      });
+    }
+    await persist({ ...config, vaults: [...config.vaults, ...entries] });
+    for (const entry of entries) {
+      setPathStatuses((current) => ({ ...current, [entry.id]: 'valid' }));
+      setBridgeStates((current) => ({ ...current, [entry.id]: 'not-installed' }));
+    }
+    setSelectedId(entries[0].id);
     setShowAddDialog(false);
-    setStatus(`已添加 ${entry.name}`);
-    setBridgeStates((current) => ({ ...current, [entry.id]: 'not-installed' }));
+    setStatus(
+      skipped > 0
+        ? `已添加 ${entries.length} 个仓库，跳过 ${skipped} 个重复。`
+        : `已添加 ${entries.length} 个仓库`,
+    );
   }
 
   async function handleBridgeAction(vault: VaultListItem) {
@@ -472,8 +503,8 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
       <StatusBar count={config?.vaults.length ?? 0} message={status} error={error} />
       {showAddDialog ? (
         <AddVaultDialog
-          onChooseDirectory={chooseDirectory}
-          onSubmit={addVault}
+          onChooseDirectories={chooseDirectories}
+          onSubmit={addVaults}
           onClose={() => setShowAddDialog(false)}
         />
       ) : null}

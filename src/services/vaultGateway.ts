@@ -14,6 +14,7 @@ export interface VaultGateway {
   loadConfig(): Promise<AppConfigV1>;
   saveConfig(config: AppConfigV1): Promise<AppConfigV1>;
   chooseDirectory(): Promise<string | null>;
+  chooseDirectories(): Promise<string[] | null>;
   validateDirectory(path: string): Promise<VaultValidationResult>;
   loadOverviewCache(paths: string[]): Promise<VaultOverview | null>;
   scanOverview(paths: string[]): Promise<VaultOverview>;
@@ -45,6 +46,19 @@ export const tauriVaultGateway: VaultGateway = {
       const selected = await open({
         directory: true,
         multiple: false,
+        title: '选择 Obsidian 仓库',
+      });
+      return selected;
+    } catch (reason) {
+      throw new AppError({ code: 'DIALOG_FAILED', message: toAppError(reason).message });
+    }
+  },
+
+  async chooseDirectories() {
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: true,
         title: '选择 Obsidian 仓库',
       });
       return selected;

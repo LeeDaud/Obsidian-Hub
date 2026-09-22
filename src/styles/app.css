@@ -995,6 +995,31 @@ button:disabled {
   color: var(--text-normal);
   border-color: var(--interactive-accent);
 }
+.pending-vault-list {
+  display: grid;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pending-vault-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pending-vault-list input {
+  flex: 0 0 150px;
+}
+.pending-vault-path {
+  flex: 1;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .dialog-error {
   margin: 0 18px 14px !important;
   padding: 8px 10px;
