@@ -9,7 +9,7 @@ Obsidian Hub 是一个面向 Windows 11 的多仓库启动器，并通过配套�
 
 - 集中添加、搜索、收藏和启动多个本地 Obsidian 仓库。
 - 检查仓库路径与 `.obsidian` 标记，并记录最近打开时间。
-- 从 Hub 安装、更新并检测各仓库中的 Bridge 插件状态。
+- 从 Hub 安装、更新并启用各仓库中的 Bridge 插件，安装后无需 Hub 常驻。
 - 在 Obsidian 中输入 `@`，先选择其他仓库，再逐层浏览文件夹和 Markdown 文件。
 - 在当前目录树中递归筛选笔记，并分批加载较大的结果集。
 - 使用 `@仓库[[路径]]` 保存可读的跨仓库链接，不影响原生 `[[双链]]`。
@@ -19,17 +19,18 @@ Obsidian Hub 是一个面向 Windows 11 的多仓库启动器，并通过配套�
 
 1. 从 GitHub Releases 下载最新的 `Obsidian Hub_*_x64-setup.exe`。
 2. 安装并启动 Obsidian Hub，然后添加已有的 Obsidian 仓库。
-3. 在仓库条目中安装 Bridge。
-4. 打开该仓库的 Obsidian 设置，在“第三方插件”中启用 `Obsidian Hub Bridge`。
-5. 保持 Hub 运行，在编辑器行首或空白后输入 `@` 开始选择仓库。
+3. 在仓库条目中安装 Bridge，Hub 会同时写入启用列表完成启用。
+4. 若该仓库的 Obsidian 正在运行，重启它使启用生效。
+5. 在编辑器行首或空白后输入 `@` 开始选择仓库；此后无需保持 Hub 运行。
 
-Hub 只在用户确认后写入 Bridge 自身目录：
+Hub 安装时写入 Bridge 自身目录，并在社区插件启用列表中登记 Bridge 自身条目：
 
 ```text
 <仓库>/.obsidian/plugins/obsidian-hub-bridge/
+<仓库>/.obsidian/community-plugins.json
 ```
 
-它不会自动关闭 Obsidian 受限模式，也不会修改社区插件启用列表或笔记正文。
+它不会关闭 Obsidian 受限模式，不会修改其他插件、主题或笔记正文。
 
 ## 跨仓库链接
 
@@ -77,7 +78,7 @@ pnpm bridge:build
 
 ```text
 src/                          Hub React 前端
-src-tauri/                    Tauri/Rust 启动器、本地 API 与笔记索引
+src-tauri/                    Tauri/Rust 启动器、Bridge 安装与旧版兼容服务
 apps/bridge/                  Obsidian Bridge 插件
 packages/protocol/            Hub 与 Bridge 共享协议
 packages/cross-vault-parser/  跨仓库链接解析器
@@ -87,11 +88,12 @@ docs/                         规划、协议、安全与使用文档
 ## 当前限制
 
 - 正式支持 Windows 11；macOS 和 Linux 尚未完成适配。
-- Hub 必须运行，Bridge 才能浏览和预览其他仓库。
+- Bridge 依赖桌面端 Node 能力，不支持移动端 Obsidian。
 - 预览以 Markdown 正文为主，跨仓库图片、附件和嵌入资源暂不保证完整显示。
-- 笔记索引目前在 Hub 启动或仓库配置更新时刷新，尚未提供实时文件监听。
+- 笔记索引在每次进入仓库（Bridge 加载）时全量扫描，文件变化需重新进入仓库或手动刷新。
 
 ## 数据与安全
 
-Hub 的本地 API 只监听 `127.0.0.1` 并使用随机令牌认证。索引保存文件元数据，不保存笔记
-正文；正文只在用户打开预览时按需读取。详细边界见 [Bridge 安全说明](docs/bridge-security.md)。
+Bridge 直接读取本机仓库登记表并在每次进入仓库时扫描文件，索引只保存元数据、不保存正文；
+正文在打开预览时按需实时读取，文件存在性以磁盘校验为准。旧版 HTTP 服务仅保留兼容并监听
+`127.0.0.1`。详细边界见 [Bridge 安全说明](docs/bridge-security.md)。
