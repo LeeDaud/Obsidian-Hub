@@ -3,5 +3,11 @@
   "identifier": "default",
   "description": "Minimum permissions for the Obsidian Hub probe",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open"]
+  "permissions": [
+    "core:default",
+    "dialog:allow-open",
+    "updater:allow-check",
+    "updater:allow-download-and-install",
+    "process:allow-restart"
+  ]
 }

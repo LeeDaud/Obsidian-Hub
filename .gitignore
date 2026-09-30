@@ -6,3 +6,7 @@ src-tauri/gen/
 .DS_Store
 Thumbs.db
 
+
+# Updater signing secrets must stay outside the repository.
+*.key
+*.key.pub

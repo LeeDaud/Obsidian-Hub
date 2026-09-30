@@ -1084,6 +1084,21 @@ button:disabled {
 
 /* Immersive launcher presentation */
 .app-shell {
+  color-scheme: dark;
+  --background-primary: #171615;
+  --background-secondary: #1d1b1a;
+  --background-elevated: #24211f;
+  --background-modifier-hover: #302b27;
+  --background-modifier-active: #3b2d27;
+  --text-normal: #e8e3df;
+  --text-muted: #aaa09a;
+  --text-faint: #817873;
+  --text-error: #e69b91;
+  --border-subtle: #36302c;
+  --border-strong: #4b4039;
+  --interactive-accent: #b97d6a;
+  --interactive-accent-hover: #cf927e;
+  --focus-ring: #cf927e;
   position: relative;
   isolation: isolate;
   color: #e8e3df;
@@ -1679,4 +1694,38 @@ button:disabled {
   .quick-action-dock button small {
     display: none;
   }
+}
+
+.update-button {
+  white-space: nowrap;
+  pointer-events: auto;
+}
+
+.update-dialog .update-notes {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow-y: auto;
+  line-height: 1.6;
+}
+
+.update-dialog progress {
+  width: 100%;
+  accent-color: var(--interactive-accent);
+}
+
+.app-shell .add-button,
+.app-shell .primary-button {
+  color: #e6b5a3;
+  background: #3c2c26;
+  border: 1px solid #6b483a;
+  box-shadow: none;
+}
+
+.app-shell .add-button:hover:not(:disabled),
+.app-shell .primary-button:hover:not(:disabled) {
+  color: #f0c6b5;
+  background: #4a352d;
+  border-color: #8a5d49;
+  box-shadow: none;
 }

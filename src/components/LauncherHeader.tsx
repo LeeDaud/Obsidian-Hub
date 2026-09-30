@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import hubIcon from '../../assets/obsidian-hub.svg';
 import type { SortMode } from '../domain/vault';
 import { SortMenu } from './SortMenu';
+import { UpdateControl } from './UpdateControl';
 
 interface LauncherHeaderProps {
   query: string;
@@ -76,12 +77,7 @@ export function LauncherHeader({
 
       <div className="header-actions">
         <SortMenu value={sortMode} onChange={onSortChange} />
-        <button className="icon-button" type="button" aria-label="设置（即将开放）" disabled>
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19 14.5v-5l-2-.7-.8-1.8.9-1.9-3.6-2.1-1.4 1.5H10L8.5 3 4.9 5.1 5.8 7 5 8.8l-2 .7v5l2 .7.8 1.8-.9 1.9L8.5 21l1.4-1.5h2.2l1.4 1.5 3.6-2.1-.9-1.9.8-1.8 2-.7Z" />
-          </svg>
-        </button>
+        <UpdateControl />
         <button className="add-button" type="button" onClick={onAdd}>
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 5v14M5 12h14" />

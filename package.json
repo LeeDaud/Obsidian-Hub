@@ -1,7 +1,7 @@
 {
   "name": "obsidian-hub",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,11 +14,14 @@
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run && pnpm --filter obsidian-hub-bridge test",
-    "test:shared": "vitest run packages/cross-vault-parser/src/index.test.ts"
+    "test:shared": "vitest run packages/cross-vault-parser/src/index.test.ts",
+    "update:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/buildUpdate.ps1"
   },
   "dependencies": {
-    "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/api": "2.12.0",
     "@tauri-apps/plugin-dialog": "2.7.1",
+    "@tauri-apps/plugin-process": "2.4.0",
+    "@tauri-apps/plugin-updater": "2.13.0",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },
