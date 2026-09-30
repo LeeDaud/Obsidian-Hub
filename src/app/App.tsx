@@ -25,6 +25,18 @@ import { QuickActionDock } from '../components/QuickActionDock';
 import { matchesVault, sortVaults } from '../features/vaults/vaultSelectors';
 import '../styles/app.css';
 
+function normalizeVaultPath(path: string): string {
+  return path
+    .replace(/\\/g, '/')
+    .replace(/^\/\/\?\/UNC\//i, '//')
+    .replace(/^\/\/\?\//, '')
+    .replace(/\/+$/, '')
+    .toLowerCase();
+}
+
+const unregisteredVaultMessage =
+  '此路径尚未在 Obsidian 中登记。请先在 Obsidian 中选择“打开本地仓库”，打开新位置，然后回到 Hub 重试。';
+
 interface AppProps {
   gateway?: VaultGateway;
 }
@@ -337,17 +349,36 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
     setError(null);
     setStatus(`正在打开 ${vault.name}…`);
     try {
-      await gateway.launch({ name: vault.name, obsidianVaultId: vault.obsidianVaultId });
+      const registered = await gateway.listObsidianVaults();
+      const obsidianVaultId =
+        registered.find((item) => normalizeVaultPath(item.path) === normalizeVaultPath(vault.path))
+          ?.id ?? null;
+      let currentConfig = config;
+      if (obsidianVaultId !== vault.obsidianVaultId) {
+        currentConfig = await persist({
+          ...config,
+          vaults: config.vaults.map((item) =>
+            item.id === vault.id
+              ? { ...item, obsidianVaultId, updatedAt: new Date().toISOString() }
+              : item,
+          ),
+        });
+      }
+      if (!obsidianVaultId) {
+        throw new AppError({ code: 'VAULT_NOT_REGISTERED', message: unregisteredVaultMessage });
+      }
+      await gateway.launch({ name: vault.name, obsidianVaultId });
       const openedAt = new Date().toISOString();
       const saved = await persist({
-        ...config,
-        vaults: config.vaults.map((item) =>
+        ...currentConfig,
+        vaults: currentConfig.vaults.map((item) =>
           item.id === vault.id ? { ...item, lastOpenedAt: openedAt, updatedAt: openedAt } : item,
         ),
       });
       setStatus(`已将 ${vault.name} 交给 Obsidian`);
       if (saved.preferences.closeAfterLaunch) await gateway.closeWindow();
     } catch (reason) {
+      setStatus('未能打开仓库');
       setError(toAppError(reason).message);
     } finally {
       setOpeningId(null);
@@ -356,15 +387,14 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
 
   async function repairVault(vault: VaultListItem) {
     if (!config) return;
+    setError(null);
     try {
       const result = await chooseDirectory();
       if (!result) return;
-      const normalized = result.canonicalPath.replace(/[\\/]+$/, '').toLocaleLowerCase();
+      const normalized = normalizeVaultPath(result.canonicalPath);
       if (
         config.vaults.some(
-          (item) =>
-            item.id !== vault.id &&
-            item.path.replace(/[\\/]+$/, '').toLocaleLowerCase() === normalized,
+          (item) => item.id !== vault.id && normalizeVaultPath(item.path) === normalized,
         )
       ) {
         throw new AppError({
@@ -372,16 +402,25 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
           message: '新的路径已经属于另一个仓库。',
         });
       }
+      const registered = await gateway.listObsidianVaults();
+      const obsidianVaultId =
+        registered.find((item) => normalizeVaultPath(item.path) === normalized)?.id ?? null;
       await persist({
         ...config,
         vaults: config.vaults.map((item) =>
           item.id === vault.id
-            ? { ...item, path: result.canonicalPath, updatedAt: new Date().toISOString() }
+            ? {
+                ...item,
+                path: result.canonicalPath,
+                obsidianVaultId,
+                updatedAt: new Date().toISOString(),
+              }
             : item,
         ),
       });
       setPathStatuses((current) => ({ ...current, [vault.id]: 'valid' }));
       setStatus(`已修复 ${vault.name} 的路径`);
+      if (!obsidianVaultId) setError(unregisteredVaultMessage);
     } catch (reason) {
       setError(toAppError(reason).message);
     }

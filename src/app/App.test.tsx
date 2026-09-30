@@ -28,7 +28,9 @@ function createGateway(): VaultGateway {
     saveConfig: vi.fn().mockImplementation(async (config) => config),
     chooseDirectory: vi.fn().mockResolvedValue('D:\\Notes\\Main'),
     chooseDirectories: vi.fn().mockResolvedValue(['D:\\Notes\\Main']),
-    listObsidianVaults: vi.fn().mockResolvedValue([]),
+    listObsidianVaults: vi
+      .fn()
+      .mockResolvedValue([{ id: 'abcdef0123456789', name: 'Main', path: 'D:\\Notes\\Main' }]),
     validateDirectory: vi
       .fn()
       .mockResolvedValue({ canonicalPath: 'D:\\Notes\\Main', suggestedName: 'Main' }),
@@ -76,7 +78,10 @@ describe('App', () => {
     await user.keyboard('{Enter}');
 
     await waitFor(() =>
-      expect(gateway.launch).toHaveBeenCalledWith({ name: 'Main Vault', obsidianVaultId: null }),
+      expect(gateway.launch).toHaveBeenCalledWith({
+        name: 'Main Vault',
+        obsidianVaultId: 'abcdef0123456789',
+      }),
     );
     expect(gateway.saveConfig).toHaveBeenCalled();
   });
@@ -128,4 +133,145 @@ describe('App', () => {
     );
     expect(await screen.findByText('Bridge 已自动启用')).toBeInTheDocument();
   });
+});
+
+describe('vault identity after moving a vault', () => {
+  async function withStaleId() {
+    const gateway = createGateway();
+    const config = await gateway.loadConfig();
+    config.vaults[0].obsidianVaultId = '1111111111111111';
+    vi.mocked(gateway.loadConfig).mockResolvedValue(config);
+    return gateway;
+  }
+
+  async function openSelected(user: ReturnType<typeof userEvent.setup>) {
+    const button = await screen.findByRole('button', { name: /打开所选/ });
+    await waitFor(() => expect(button).toBeEnabled());
+    await user.click(button);
+  }
+
+  it('replaces a stale ID before launching an already repaired path', async () => {
+    const gateway = await withStaleId();
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+    await openSelected(user);
+    await waitFor(() =>
+      expect(gateway.launch).toHaveBeenCalledExactlyOnceWith({
+        name: 'Main Vault',
+        obsidianVaultId: 'abcdef0123456789',
+      }),
+    );
+    const saved = vi.mocked(gateway.saveConfig).mock.calls.at(-1)![0].vaults[0];
+    expect(saved).toMatchObject({
+      id: 'main',
+      favorite: true,
+      obsidianVaultId: 'abcdef0123456789',
+    });
+    expect(saved.lastOpenedAt).not.toBeNull();
+  });
+
+  it.each([
+    ['\\\\?\\D:\\Moved\\Main', 'd:/moved/main/'],
+    ['\\\\?\\UNC\\server\\share\\Main', '\\\\SERVER\\share\\Main\\'],
+  ])('repairs the path and ID together for %s', async (canonicalPath, registeredPath) => {
+    const gateway = await withStaleId();
+    vi.mocked(gateway.validateDirectory)
+      .mockRejectedValueOnce({ code: 'VAULT_PATH_NOT_FOUND', message: '路径不存在' })
+      .mockResolvedValue({ canonicalPath, suggestedName: 'Main' });
+    vi.mocked(gateway.listObsidianVaults).mockResolvedValue([
+      { id: 'abcdef0123456789', name: 'Main', path: registeredPath },
+    ]);
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+    await user.click(await screen.findByRole('button', { name: '修复路径' }));
+    await screen.findByText('已修复 Main Vault 的路径');
+    expect(vi.mocked(gateway.saveConfig).mock.calls[0][0].vaults[0]).toMatchObject({
+      id: 'main',
+      path: canonicalPath,
+      obsidianVaultId: 'abcdef0123456789',
+      favorite: true,
+    });
+    await openSelected(user);
+    await waitFor(() =>
+      expect(gateway.launch).toHaveBeenCalledExactlyOnceWith({
+        name: 'Main Vault',
+        obsidianVaultId: 'abcdef0123456789',
+      }),
+    );
+  });
+
+  it('clears the old ID when repairing to an unregistered path', async () => {
+    const gateway = await withStaleId();
+    vi.mocked(gateway.validateDirectory)
+      .mockRejectedValueOnce({ code: 'VAULT_PATH_NOT_FOUND', message: '路径不存在' })
+      .mockResolvedValue({ canonicalPath: 'D:\\Moved\\Main', suggestedName: 'Main' });
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+    await user.click(await screen.findByRole('button', { name: '修复路径' }));
+    await screen.findByText(/此路径尚未在 Obsidian 中登记/);
+    expect(vi.mocked(gateway.saveConfig).mock.calls[0][0].vaults[0]).toMatchObject({
+      id: 'main',
+      path: 'D:\\Moved\\Main',
+      obsidianVaultId: null,
+      lastOpenedAt: null,
+    });
+    await openSelected(user);
+    await waitFor(() => expect(gateway.listObsidianVaults).toHaveBeenCalledTimes(2));
+    await screen.findByText(/此路径尚未在 Obsidian 中登记/);
+    expect(gateway.launch).not.toHaveBeenCalled();
+    expect(gateway.closeWindow).not.toHaveBeenCalled();
+  });
+
+  it('blocks a same-name vault at another path, then recovers after registration', async () => {
+    const gateway = await withStaleId();
+    vi.mocked(gateway.listObsidianVaults).mockResolvedValue([
+      { id: '1111111111111111', name: 'Main Vault', path: 'D:\\Other\\Main' },
+    ]);
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+    await openSelected(user);
+    await screen.findByText(/此路径尚未在 Obsidian 中登记/);
+    expect(gateway.launch).not.toHaveBeenCalled();
+    expect(vi.mocked(gateway.saveConfig).mock.calls[0][0].vaults[0]).toMatchObject({
+      obsidianVaultId: null,
+      lastOpenedAt: null,
+    });
+    vi.mocked(gateway.listObsidianVaults).mockResolvedValue([
+      { id: 'abcdef0123456789', name: 'Main', path: 'D:\\Notes\\Main' },
+    ]);
+    await openSelected(user);
+    await waitFor(() =>
+      expect(gateway.launch).toHaveBeenCalledExactlyOnceWith({
+        name: 'Main Vault',
+        obsidianVaultId: 'abcdef0123456789',
+      }),
+    );
+  });
+
+  it.each(['open', 'repair'])(
+    'does not change records or launch when registration lookup fails during %s',
+    async (action) => {
+      const gateway = await withStaleId();
+      vi.mocked(gateway.listObsidianVaults).mockRejectedValue({
+        code: 'OBSIDIAN_CONFIG_READ_FAILED',
+        message: '无法读取 Obsidian 配置。',
+      });
+      if (action === 'repair') {
+        vi.mocked(gateway.validateDirectory).mockRejectedValueOnce({
+          code: 'VAULT_PATH_NOT_FOUND',
+          message: '路径不存在',
+        });
+      }
+      const user = userEvent.setup();
+      render(<App gateway={gateway} />);
+      if (action === 'repair') {
+        await user.click(await screen.findByRole('button', { name: '修复路径' }));
+      } else {
+        await openSelected(user);
+      }
+      await screen.findByText('无法读取 Obsidian 配置。');
+      expect(gateway.launch).not.toHaveBeenCalled();
+      expect(gateway.saveConfig).not.toHaveBeenCalled();
+    },
+  );
 });
