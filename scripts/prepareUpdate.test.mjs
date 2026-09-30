@@ -16,7 +16,7 @@ describe('release manifest', () => {
     const manifest = createUpdateManifest(input);
     assert.equal(
       manifest.platforms['windows-x86_64'].url,
-      'https://github.com/LeeDaud/Obsidian-Hub/releases/download/v0.4.0/Obsidian%20Hub_0.4.0_x64-setup.exe',
+      'https://github.com/LeeDaud/Obsidian-Hub/releases/download/v0.4.0/Obsidian.Hub_0.4.0_x64-setup.exe',
     );
     assert.equal(manifest.platforms['windows-x86_64'].signature, input.signature);
     assert.equal(manifest.version, '0.4.0');

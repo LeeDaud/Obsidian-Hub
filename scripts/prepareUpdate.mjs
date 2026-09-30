@@ -25,7 +25,7 @@ export function createUpdateManifest({ version, signature, installerName, notes,
     platforms: {
       'windows-x86_64': {
         signature: encodedSignature,
-        url: `https://github.com/LeeDaud/Obsidian-Hub/releases/download/v${version}/${encodeURIComponent(installerName)}`,
+        url: `https://github.com/LeeDaud/Obsidian-Hub/releases/download/v${version}/${encodeURIComponent(installerName.replaceAll(' ', '.'))}`,
       },
     },
   };

@@ -44,6 +44,8 @@ pnpm update:build -Debug
 5. 检查 `https://github.com/LeeDaud/Obsidian-Hub/releases/latest/download/latest.json` 可匿名访问。
 6. 在已安装的旧版 Hub 上检查、下载并更新，确认重启后版本号与仓库配置正确。
 
+GitHub 上传后会将文件名空格改为点号，因此线上安装包名为 `Obsidian.Hub_<版本>_x64-setup.exe`；清单生成脚本已按此规则生成下载地址。
+
 更新清单必须与安装包及签名来自同一轮构建。自动化测试不能替代实际安装升级验收。
 
 参考：[Tauri 官方更新文档](https://v2.tauri.app/plugin/updater/)。
