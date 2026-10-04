@@ -4,7 +4,7 @@
 
 - [x] 版本递增为 preview.3 并更新发布说明，保持独立 2.0 身份和更新通道。
 - [x] 格式、Lint、类型检查、98 项前端、16 项 Bridge、29 项 Rust 测试及 preview.3 签名 Release 构建通过；提交并推送 2.0 分支。
-- [ ] 发布 preview.3 预发布资产，替换独立通道清单并核对正式 Latest 不变。
+- [x] 发布 preview.3 预发布安装包、签名与清单并替换 `v2-preview-channel/latest.json`；匿名清单和安装包下载验证通过，正式 Latest 仍为 `v0.4.0`。
 
 ## 任务静默更新与 Markdown 预览优化（2026-10-04 已确认实施）
 
