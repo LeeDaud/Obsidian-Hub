@@ -35,12 +35,37 @@ export interface WorkspaceState {
   schemaVersion: 1;
   todayPlan: Record<string, string[]>;
   reviewed: string[];
+  eventWarning?: string;
 }
 
 export interface WorkspaceFileResult {
   vaultId: string;
   relativePath: string;
   contentHash: string;
+  eventWarning?: string;
+}
+
+export interface WorkflowEventNoteRef {
+  vaultId: string;
+  relativePath: string;
+}
+
+export interface WorkflowEvent {
+  schemaVersion: 1;
+  id: string;
+  occurredAt: string;
+  kind: 'noteCreated' | 'taskUpdated' | 'echoReviewUpdated';
+  outcome: 'succeeded' | 'failed';
+  source?: WorkflowEventNoteRef;
+  target?: WorkflowEventNoteRef;
+  detail?: { noteKind?: string; complete?: boolean; reviewed?: boolean };
+  errorCode?: string;
+}
+
+export interface WorkflowEventQuery {
+  events: WorkflowEvent[];
+  hasWarnings: boolean;
+  skippedLines: number;
 }
 
 export interface WorkspaceNotePreview {

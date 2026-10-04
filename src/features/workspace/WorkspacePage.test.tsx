@@ -106,6 +106,12 @@ function gateway(): VaultGateway {
     setEchoReviewed: vi
       .fn()
       .mockResolvedValue({ schemaVersion: 1, todayPlan: {}, reviewed: ['echo:Idea.md'] }),
+    loadWorkflowEvents: vi
+      .fn()
+      .mockResolvedValue({ events: [], hasWarnings: false, skippedLines: 0 }),
+    clearWorkflowEvents: vi
+      .fn()
+      .mockResolvedValue({ events: [], hasWarnings: false, skippedLines: 0 }),
   };
 }
 
@@ -355,6 +361,20 @@ describe('WorkspacePage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Obsidian 未能打开');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(api.createWorkspaceNote).toHaveBeenCalledTimes(1);
+    vi.mocked(api.openWorkspaceNote!).mockResolvedValue('obsidian://open');
+    await user.click(screen.getByRole('button', { name: '重新打开' }));
+    expect(api.createWorkspaceNote).toHaveBeenCalledTimes(1);
+    expect(api.openWorkspaceNote).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('button', { name: '重新打开' })).not.toBeInTheDocument();
+  });
+
+  it('opens the activity dialog from the single-page footer', async () => {
+    const user = userEvent.setup();
+    const api = gateway();
+    render(<WorkspacePage config={config} gateway={api} onConfigChange={vi.fn()} />);
+    await user.click(await screen.findByRole('button', { name: '活动' }));
+    expect(await screen.findByRole('dialog', { name: '工作流活动' })).toBeVisible();
+    expect(api.loadWorkflowEvents).toHaveBeenCalledTimes(1);
   });
 
   it('paginates all notes and searches across roles on the same page', async () => {

@@ -12,6 +12,7 @@ import type { VaultGateway } from '../../services/vaultGateway';
 import { CreateNoteDialog } from './CreateNoteDialog';
 import { WorkspaceDialog } from './WorkspaceDialog';
 import { NotePreviewDialog } from './NotePreviewDialog';
+import { ActivityDialog } from './ActivityDialog';
 import { noteNameError } from './noteNaming';
 import type { CrossVaultLink } from '@obsidian-hub/cross-vault-parser';
 
@@ -64,6 +65,8 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [showSetup, setShowSetup] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
+  const [lastCreated, setLastCreated] = useState<WorkspaceFileResult | null>(null);
   const [mainFolder, setMainFolder] = useState(config.workspace.mainFolder ?? '');
   const [outputFolder, setOutputFolder] = useState(config.workspace.outputFolder ?? '');
   useEffect(() => {
@@ -202,16 +205,21 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
   async function openNote(note: { vaultId: string; relativePath: string }) {
     try {
       await gateway.openWorkspaceNote?.(note.vaultId, note.relativePath);
+      return true;
     } catch (reason) {
       setError(toAppError(reason).message);
+      return false;
     }
   }
   async function created(result: WorkspaceFileResult) {
     setCreating(null);
-    setMessage('已创建 ' + result.relativePath + '，正文由你在 Obsidian 中完成。');
+    setLastCreated(result);
+    setMessage(
+      result.eventWarning ?? '已创建 ' + result.relativePath + '，正文由你在 Obsidian 中完成。',
+    );
     await refresh();
     // Opening failure must never cause a second creation attempt.
-    await openNote(result);
+    if (await openNote(result)) setLastCreated(null);
   }
   async function updateTask(task: WorkspaceTask) {
     if (!gateway.setWorkspaceTaskComplete) return;
@@ -259,6 +267,7 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
             }
           : current,
       );
+      if (result.eventWarning) setMessage(result.eventWarning);
     } catch (reason) {
       setSnapshot((current) =>
         current
@@ -283,7 +292,12 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
     if (!gateway.setEchoReviewed) return;
     setSaving(true);
     try {
-      setState(await gateway.setEchoReviewed(note.id, !(state?.reviewed ?? []).includes(note.id)));
+      const nextState = await gateway.setEchoReviewed(
+        note.id,
+        !(state?.reviewed ?? []).includes(note.id),
+      );
+      setState(nextState);
+      if (nextState.eventWarning) setMessage(nextState.eventWarning);
     } catch (reason) {
       setError(toAppError(reason).message);
     } finally {
@@ -441,7 +455,7 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
             }).format(new Date())}
           </span>
           <h1>
-            知识工作台<span className="workspace-version">2.0</span>
+            知识工作台<span className="workspace-version">2.1</span>
           </h1>
         </div>
         <div className="workspace-header-actions">
@@ -477,6 +491,21 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
           role={error ? 'alert' : 'status'}
         >
           <span>{error ?? message}</span>
+          {error && lastCreated && (
+            <button
+              type="button"
+              onClick={() =>
+                void openNote(lastCreated).then((opened) => {
+                  if (opened) {
+                    setLastCreated(null);
+                    setError(null);
+                  }
+                })
+              }
+            >
+              重新打开
+            </button>
+          )}
           <button
             type="button"
             aria-label="关闭提示"
@@ -585,13 +614,25 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
             Output 输出
           </button>
         </div>
-        <button type="button" className="workspace-connection" onClick={() => setShowSetup(true)}>
-          {busy || snapshot?.fromCache
-            ? '检查仓库中…'
-            : online + '/' + config.vaults.length + ' 个仓库在线'}
-          {failures ? ' · 部分文件读取失败' : ''}
-        </button>
+        <div className="workspace-bottom-actions">
+          <button
+            type="button"
+            className="workspace-connection"
+            onClick={() => setShowActivity(true)}
+          >
+            活动
+          </button>
+          <button type="button" className="workspace-connection" onClick={() => setShowSetup(true)}>
+            {busy || snapshot?.fromCache
+              ? '检查仓库中…'
+              : online + '/' + config.vaults.length + ' 个仓库在线'}
+            {failures ? ' · 部分文件读取失败' : ''}
+          </button>
+        </div>
       </footer>
+      {showActivity && (
+        <ActivityDialog config={config} gateway={gateway} onClose={() => setShowActivity(false)} />
+      )}
       {showSetup && (
         <WorkspaceDialog title="工作流设置" onClose={() => setShowSetup(false)} busy={saving}>
           <p className="workspace-subtle">

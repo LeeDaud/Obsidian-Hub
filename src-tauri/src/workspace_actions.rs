@@ -25,6 +25,8 @@ pub struct FileResult {
     pub vault_id: String,
     pub relative_path: String,
     pub content_hash: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_warning: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -430,6 +432,7 @@ fn create_note_with_config(
         vault_id: destination.id.clone(),
         relative_path,
         content_hash: content_hash(contents.as_bytes()),
+        event_warning: None,
     })
 }
 
@@ -537,6 +540,7 @@ fn set_task_complete_with_config(
         vault_id: vault_id.to_owned(),
         relative_path: relative_path.to_owned(),
         content_hash: content_hash(text.as_bytes()),
+        event_warning: None,
     })
 }
 

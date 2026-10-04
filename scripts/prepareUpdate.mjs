@@ -13,7 +13,7 @@ export function createUpdateManifest({
   date,
   preview = false,
 }) {
-  const versionPattern = preview ? /^2\.0\.0-preview\.\d+$/ : /^\d+\.\d+\.\d+$/;
+  const versionPattern = preview ? /^2\.\d+\.\d+-preview\.\d+$/ : /^\d+\.\d+\.\d+$/;
   if (!versionPattern.test(version)) throw new Error('Version does not match the release channel.');
   const productName = preview ? 'Obsidian Hub 2 Preview' : 'Obsidian Hub';
   if (installerName !== `${productName}_${version}_x64-setup.exe`) {
@@ -52,7 +52,7 @@ async function prepare() {
   if (config.version !== packageConfig.version || config.version !== cargoVersion) {
     throw new Error('Hub versions must match before publishing.');
   }
-  const preview = config.version.startsWith('2.0.0-preview.');
+  const preview = /^2\.\d+\.\d+-preview\.\d+$/.test(config.version);
   const productName = preview ? 'Obsidian Hub 2 Preview' : 'Obsidian Hub';
   const identifier = preview ? 'io.github.obsidian-hub.v2preview' : 'io.github.obsidian-hub';
   const endpoint = preview

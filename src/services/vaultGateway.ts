@@ -16,6 +16,7 @@ import type {
   WorkspaceNotePreview,
   WorkspaceSnapshot,
   WorkspaceState,
+  WorkflowEventQuery,
 } from '../domain/workspace';
 
 export interface VaultGateway {
@@ -50,6 +51,8 @@ export interface VaultGateway {
   loadWorkspaceState?(): Promise<WorkspaceState>;
   setTodayTask?(date: string, taskId: string, selected: boolean): Promise<WorkspaceState>;
   setEchoReviewed?(noteId: string, reviewed: boolean): Promise<WorkspaceState>;
+  loadWorkflowEvents?(): Promise<WorkflowEventQuery>;
+  clearWorkflowEvents?(): Promise<WorkflowEventQuery>;
 }
 
 export const tauriVaultGateway: VaultGateway = {
@@ -223,6 +226,20 @@ export const tauriVaultGateway: VaultGateway = {
   async setEchoReviewed(noteId, reviewed) {
     try {
       return await invoke<WorkspaceState>('set_echo_reviewed', { noteId, reviewed });
+    } catch (reason) {
+      throw toAppError(reason);
+    }
+  },
+  async loadWorkflowEvents() {
+    try {
+      return await invoke<WorkflowEventQuery>('load_workflow_events');
+    } catch (reason) {
+      throw toAppError(reason);
+    }
+  },
+  async clearWorkflowEvents() {
+    try {
+      return await invoke<WorkflowEventQuery>('clear_workflow_events');
     } catch (reason) {
       throw toAppError(reason);
     }

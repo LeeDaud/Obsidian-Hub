@@ -14,6 +14,8 @@ pub struct WorkspaceState {
     pub schema_version: u32,
     pub today_plan: BTreeMap<String, Vec<String>>,
     pub reviewed: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_warning: Option<String>,
 }
 
 fn state_path(app: &AppHandle) -> Result<PathBuf, AppError> {
@@ -92,6 +94,7 @@ pub fn set_today_task(
         ));
     }
     let mut state = load(app)?;
+    state.event_warning = None;
     let tasks = state.today_plan.entry(date.to_owned()).or_default();
     tasks.retain(|candidate| candidate != task_id);
     if selected {
@@ -113,6 +116,7 @@ pub fn set_reviewed(
         ));
     }
     let mut state = load(app)?;
+    state.event_warning = None;
     state.reviewed.retain(|candidate| candidate != note_id);
     if reviewed {
         state.reviewed.push(note_id.to_owned());

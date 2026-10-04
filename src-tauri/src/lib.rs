@@ -5,6 +5,7 @@ mod launcher;
 mod note_index;
 mod overview;
 mod vault;
+mod workflow_events;
 mod workspace_actions;
 mod workspace_index;
 mod workspace_state;
@@ -121,9 +122,57 @@ async fn create_workspace_note(
     app: tauri::AppHandle,
     request: workspace_actions::CreateNoteRequest,
 ) -> Result<workspace_actions::FileResult, error::AppError> {
-    tauri::async_runtime::spawn_blocking(move || workspace_actions::create_note(&app, request))
-        .await
-        .map_err(|_| error::AppError::new("NOTE_WRITE_FAILED", "创建笔记意外中断。"))?
+    let event_app = app.clone();
+    let source = workflow_events::EventNoteRef {
+        vault_id: request.source.vault_id.clone(),
+        relative_path: request.source.relative_path.clone(),
+    };
+    let note_kind = request.kind.clone();
+    let result =
+        tauri::async_runtime::spawn_blocking(move || workspace_actions::create_note(&app, request))
+            .await
+            .map_err(|_| error::AppError::new("NOTE_WRITE_FAILED", "创建笔记意外中断。"))?;
+    match result {
+        Ok(mut file) => {
+            let event = workflow_events::NewEvent {
+                kind: "noteCreated",
+                outcome: "succeeded",
+                source: Some(source),
+                target: Some(workflow_events::EventNoteRef {
+                    vault_id: file.vault_id.clone(),
+                    relative_path: file.relative_path.clone(),
+                }),
+                detail: Some(workflow_events::EventDetail {
+                    note_kind: Some(note_kind),
+                    complete: None,
+                    reviewed: None,
+                }),
+                error_code: None,
+            };
+            if workflow_events::record(&event_app, event).is_err() {
+                file.event_warning = Some("操作已完成，但未能记录到活动日志。".into());
+            }
+            Ok(file)
+        }
+        Err(error) => {
+            let _ = workflow_events::record(
+                &event_app,
+                workflow_events::NewEvent {
+                    kind: "noteCreated",
+                    outcome: "failed",
+                    source: Some(source),
+                    target: None,
+                    detail: Some(workflow_events::EventDetail {
+                        note_kind: Some(note_kind),
+                        complete: None,
+                        reviewed: None,
+                    }),
+                    error_code: Some(error.code.to_owned()),
+                },
+            );
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
@@ -135,14 +184,60 @@ fn set_workspace_task_complete(
     expected_hash: String,
     complete: bool,
 ) -> Result<workspace_actions::FileResult, error::AppError> {
-    workspace_actions::set_task_complete(
+    let source = workflow_events::EventNoteRef {
+        vault_id: vault_id.clone(),
+        relative_path: relative_path.clone(),
+    };
+    let result = workspace_actions::set_task_complete(
         &app,
         &vault_id,
         &relative_path,
         line_number,
         &expected_hash,
         complete,
-    )
+    );
+    match result {
+        Ok(mut file) => {
+            if workflow_events::record(
+                &app,
+                workflow_events::NewEvent {
+                    kind: "taskUpdated",
+                    outcome: "succeeded",
+                    source: Some(source),
+                    target: None,
+                    detail: Some(workflow_events::EventDetail {
+                        note_kind: None,
+                        complete: Some(complete),
+                        reviewed: None,
+                    }),
+                    error_code: None,
+                },
+            )
+            .is_err()
+            {
+                file.event_warning = Some("任务已更新，但未能记录到活动日志。".into());
+            }
+            Ok(file)
+        }
+        Err(error) => {
+            let _ = workflow_events::record(
+                &app,
+                workflow_events::NewEvent {
+                    kind: "taskUpdated",
+                    outcome: "failed",
+                    source: Some(source),
+                    target: None,
+                    detail: Some(workflow_events::EventDetail {
+                        note_kind: None,
+                        complete: Some(complete),
+                        reviewed: None,
+                    }),
+                    error_code: Some(error.code.to_owned()),
+                },
+            );
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
@@ -187,7 +282,70 @@ fn set_echo_reviewed(
     note_id: String,
     reviewed: bool,
 ) -> Result<workspace_state::WorkspaceState, error::AppError> {
-    workspace_state::set_reviewed(&app, &note_id, reviewed)
+    let source =
+        note_id
+            .split_once(':')
+            .map(|(vault_id, relative_path)| workflow_events::EventNoteRef {
+                vault_id: vault_id.to_owned(),
+                relative_path: relative_path.to_owned(),
+            });
+    let result = workspace_state::set_reviewed(&app, &note_id, reviewed);
+    match result {
+        Ok(mut state) => {
+            if workflow_events::record(
+                &app,
+                workflow_events::NewEvent {
+                    kind: "echoReviewUpdated",
+                    outcome: "succeeded",
+                    source,
+                    target: None,
+                    detail: Some(workflow_events::EventDetail {
+                        note_kind: None,
+                        complete: None,
+                        reviewed: Some(reviewed),
+                    }),
+                    error_code: None,
+                },
+            )
+            .is_err()
+            {
+                state.event_warning = Some("已阅状态已更新，但未能记录到活动日志。".into());
+            }
+            Ok(state)
+        }
+        Err(error) => {
+            let _ = workflow_events::record(
+                &app,
+                workflow_events::NewEvent {
+                    kind: "echoReviewUpdated",
+                    outcome: "failed",
+                    source,
+                    target: None,
+                    detail: Some(workflow_events::EventDetail {
+                        note_kind: None,
+                        complete: None,
+                        reviewed: Some(reviewed),
+                    }),
+                    error_code: Some(error.code.to_owned()),
+                },
+            );
+            Err(error)
+        }
+    }
+}
+
+#[tauri::command]
+fn load_workflow_events(
+    app: tauri::AppHandle,
+) -> Result<workflow_events::WorkflowEventQuery, error::AppError> {
+    workflow_events::load(&app)
+}
+
+#[tauri::command]
+fn clear_workflow_events(
+    app: tauri::AppHandle,
+) -> Result<workflow_events::WorkflowEventQuery, error::AppError> {
+    workflow_events::clear(&app)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -221,7 +379,9 @@ pub fn run() {
             read_workspace_note,
             load_workspace_state,
             set_today_task,
-            set_echo_reviewed
+            set_echo_reviewed,
+            load_workflow_events,
+            clear_workflow_events
         ])
         .run(tauri::generate_context!())
         .expect("error while running Obsidian Hub");
