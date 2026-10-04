@@ -9,20 +9,9 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 use tempfile::NamedTempFile;
 
-use crate::error::AppError;
+use crate::{error::AppError, note_index::IGNORED_DIRECTORIES};
 
 const CACHE_FILE_NAME: &str = "overview-cache.json";
-const IGNORED_DIRECTORIES: &[&str] = &[
-    ".obsidian",
-    ".git",
-    "node_modules",
-    ".trash",
-    "$recycle.bin",
-    "recycler",
-    "target",
-    "dist",
-    ".cache",
-];
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -102,9 +91,10 @@ fn should_ignore(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| {
-            IGNORED_DIRECTORIES
-                .iter()
-                .any(|ignored| name.eq_ignore_ascii_case(ignored))
+            name.starts_with('.')
+                || IGNORED_DIRECTORIES
+                    .iter()
+                    .any(|ignored| name.eq_ignore_ascii_case(ignored))
         })
 }
 

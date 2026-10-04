@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
 import type {
-  AppConfigV1,
+  AppConfigV2,
   BridgeStatus,
   LaunchTarget,
   ObsidianVaultEntry,
@@ -10,10 +10,17 @@ import type {
   VaultValidationResult,
 } from '../domain/vault';
 import { AppError, toAppError } from '../domain/appError';
+import type {
+  CreateWorkspaceNoteRequest,
+  WorkspaceFileResult,
+  WorkspaceNotePreview,
+  WorkspaceSnapshot,
+  WorkspaceState,
+} from '../domain/workspace';
 
 export interface VaultGateway {
-  loadConfig(): Promise<AppConfigV1>;
-  saveConfig(config: AppConfigV1): Promise<AppConfigV1>;
+  loadConfig(): Promise<AppConfigV2>;
+  saveConfig(config: AppConfigV2): Promise<AppConfigV2>;
   chooseDirectory(): Promise<string | null>;
   chooseDirectories(): Promise<string[] | null>;
   validateDirectory(path: string): Promise<VaultValidationResult>;
@@ -24,12 +31,31 @@ export interface VaultGateway {
   installBridge?(vaultPath: string, vaultId: string): Promise<string>;
   getBridgeStatus?(vaultPath: string, vaultId: string): Promise<BridgeStatus>;
   closeWindow(): Promise<void>;
+  scanWorkspace?(): Promise<WorkspaceSnapshot>;
+  loadWorkspaceCache?(): Promise<WorkspaceSnapshot | null>;
+  createWorkspaceNote?(request: CreateWorkspaceNoteRequest): Promise<WorkspaceFileResult>;
+  setWorkspaceTaskComplete?(
+    vaultId: string,
+    relativePath: string,
+    lineNumber: number,
+    expectedHash: string,
+    complete: boolean,
+  ): Promise<WorkspaceFileResult>;
+  openWorkspaceNote?(vaultId: string, relativePath: string): Promise<string>;
+  readWorkspaceNote?(
+    vaultId: string,
+    relativePath: string,
+    expectedHash?: string,
+  ): Promise<WorkspaceNotePreview>;
+  loadWorkspaceState?(): Promise<WorkspaceState>;
+  setTodayTask?(date: string, taskId: string, selected: boolean): Promise<WorkspaceState>;
+  setEchoReviewed?(noteId: string, reviewed: boolean): Promise<WorkspaceState>;
 }
 
 export const tauriVaultGateway: VaultGateway = {
   async loadConfig() {
     try {
-      return await invoke<AppConfigV1>('load_config');
+      return await invoke<AppConfigV2>('load_config');
     } catch (reason) {
       throw toAppError(reason);
     }
@@ -37,7 +63,7 @@ export const tauriVaultGateway: VaultGateway = {
 
   async saveConfig(config) {
     try {
-      return await invoke<AppConfigV1>('save_config', { config });
+      return await invoke<AppConfigV2>('save_config', { config });
     } catch (reason) {
       throw toAppError(reason);
     }
@@ -127,5 +153,78 @@ export const tauriVaultGateway: VaultGateway = {
 
   async closeWindow() {
     await getCurrentWindow().close();
+  },
+  async scanWorkspace() {
+    try {
+      return await invoke<WorkspaceSnapshot>('scan_workspace');
+    } catch (reason) {
+      throw toAppError(reason);
+    }
+  },
+  async loadWorkspaceCache() {
+    try {
+      return await invoke<WorkspaceSnapshot | null>('load_workspace_cache');
+    } catch (reason) {
+      throw toAppError(reason);
+    }
+  },
+  async createWorkspaceNote(request) {
+    try {
+      return await invoke<WorkspaceFileResult>('create_workspace_note', { request });
+    } catch (reason) {
+      throw toAppError(reason);
+    }
+  },
+  async setWorkspaceTaskComplete(vaultId, relativePath, lineNumber, expectedHash, complete) {
+    try {
+      return await invoke<WorkspaceFileResult>('set_workspace_task_complete', {
+        vaultId,
+        relativePath,
+        lineNumber,
+        expectedHash,
+        complete,
+      });
+    } catch (reason) {
+      throw toAppError(reason);
+    }
+  },
+  async openWorkspaceNote(vaultId, relativePath) {
+    try {
+      return await invoke<string>('open_workspace_note', { vaultId, relativePath });
+    } catch (reason) {
+      throw toAppError(reason);
+    }
+  },
+  async readWorkspaceNote(vaultId, relativePath, expectedHash) {
+    try {
+      return await invoke<WorkspaceNotePreview>('read_workspace_note', {
+        vaultId,
+        relativePath,
+        expectedHash,
+      });
+    } catch (reason) {
+      throw toAppError(reason);
+    }
+  },
+  async loadWorkspaceState() {
+    try {
+      return await invoke<WorkspaceState>('load_workspace_state');
+    } catch (reason) {
+      throw toAppError(reason);
+    }
+  },
+  async setTodayTask(date, taskId, selected) {
+    try {
+      return await invoke<WorkspaceState>('set_today_task', { date, taskId, selected });
+    } catch (reason) {
+      throw toAppError(reason);
+    }
+  },
+  async setEchoReviewed(noteId, reviewed) {
+    try {
+      return await invoke<WorkspaceState>('set_echo_reviewed', { noteId, reviewed });
+    } catch (reason) {
+      throw toAppError(reason);
+    }
   },
 };

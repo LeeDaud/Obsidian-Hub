@@ -320,7 +320,17 @@ var path2 = __toESM(require("path"), 1);
 // src/localIndex.ts
 var import_fs = require("fs");
 var path = __toESM(require("path"), 1);
-var IGNORED_DIRECTORIES = [".obsidian", ".git", ".trash", "node_modules", "target", "dist"];
+var IGNORED_DIRECTORIES = [
+  ".obsidian",
+  ".git",
+  ".trash",
+  "node_modules",
+  "target",
+  "dist",
+  "$recycle.bin",
+  "recycler",
+  ".cache"
+];
 function frontmatterValues(contents, key) {
   if (!contents.startsWith("---\n")) return [];
   const end = contents.indexOf("\n---", 4);

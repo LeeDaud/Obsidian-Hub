@@ -5,3 +5,5 @@ src-tauri/gen
 pnpm-lock.yaml
 apps/bridge/main.js
 plugin.md
+# 保留用户提供的 2.0 原始需求文档排版
+docs/ObsidianHub 2.0.md

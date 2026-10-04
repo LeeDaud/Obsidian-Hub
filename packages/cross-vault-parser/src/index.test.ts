@@ -2,6 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { findCrossVaultLinks, parseCrossVaultLink, serializeCrossVaultLink } from './index';
 
 describe('cross-vault parser', () => {
+  it('resolves direct-workflow source links including escaped filename punctuation', () => {
+    const links = findCrossVaultLinks(
+      '- 灵感： @echo:echo[[想法 \\#1\\].md]]\n- 认知： @main:main[[我的认知.md]]\n- 参考： @knowledge:knowledge[[资料 A.md]]',
+    );
+    expect(links.map(({ vaultId, notePath, heading }) => ({ vaultId, notePath, heading }))).toEqual(
+      [
+        { vaultId: 'echo', notePath: '想法 #1].md', heading: undefined },
+        { vaultId: 'main', notePath: '我的认知.md', heading: undefined },
+        { vaultId: 'knowledge', notePath: '资料 A.md', heading: undefined },
+      ],
+    );
+  });
   it.each([
     ['@Vault[[Note]]', 'Vault', 'Note'],
     ['@Vault[[Folder/Note]]', 'Vault', 'Folder/Note'],

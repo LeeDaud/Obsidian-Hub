@@ -1,5 +1,38 @@
 # Obsidian Hub 项目规划
 
+## 首页、任务与灵感预览重整（2026-10-04 已确认实施）
+
+- 默认首页固定为“仓库管理”，不再因已配置工作流角色自动跳到工作台；顶部顺序改为“仓库管理、工作台”，保持用户手动切换。
+- 工作台移除“今日任务”入口、星标和空状态引导，默认直接显示“所有任务”。保留已有 `todayPlan` 数据兼容，不迁移或删除用户状态，但新版 UI 不再读取或写入今日计划。
+- 所有任务按来源笔记 `modifiedAt` 从新到旧排列；同一笔记内按行号排列，完成状态不再导致任务跳位。搜索仍跨全部笔记，其他内容筛选保持不变。
+- 修复任务行布局：使用固定复选框、可收缩正文和固定操作区三列；重置全局输入样式对复选框的 padding / border 影响，长任务与长路径单行省略，小窗口不挤压错位。
+- Echo 待处理灵感列表只提供“预览”入口；成功读取正文后，预览底部才显示“标为已阅 / 恢复待处理”和“添加认知笔记”。创建认知笔记时关闭预览再进入创建流程，避免未查看正文就直接流转。
+- 任务正文可打开其来源笔记预览，独立按钮继续支持在 Obsidian 打开。补充默认首页、导航顺序、任务排序与响应式布局、预览后操作的回归测试，并完成标准检查和本地构建；不提交、推送或发布。
+
+## Hub 内只读笔记预览（2026-10-03 已确认实施）
+
+- 工作台单击笔记标题打开 Hub 内只读预览，双击或预览内按钮在 Obsidian 打开；创建完成后仍直接进入 Obsidian，不改变既有写作流程。
+- 新增受限正文读取命令：仅接收已登记仓库 ID 与仓库内 Markdown 相对路径，实时校验真实路径、符号链接边界、UTF-8 与 2 MiB 大小限制，不缓存正文、不记录正文。
+- 前端不解析原始 HTML，使用 React 文本节点渲染基础 Markdown：标题、段落、列表、任务、引用、分隔线与围栏代码；首版不加载图片或附件，避免 WebView 访问越界资源。
+- 复用现有 `cross-vault-parser` 识别跨库链接；Hub 点击后在工作台索引中定位并继续预览。Bridge 的 Obsidian `MarkdownRenderer` 依赖插件运行时，不与 Hub 共用渲染层；Bridge HTTP 与 Hub 命令共用 Rust 正文读取函数。
+- 预览显示仓库、路径、文件变更提示与读取错误，支持刷新、关闭和“在 Obsidian 中打开”；快速切换时旧请求不得覆盖新笔记。
+- 补充 Rust 路径与大小边界、网关、交互及安全渲染测试，完成格式、Lint、类型、前后端测试与本地构建；继续不提交、推送或发布。
+
+## 自动进入下一阶段仓库（2026-10-03 已确认实施）
+
+- 工作流设置复用唯一仓库角色映射：Echo → Main（可指定 Leedaud），Main + 可选 Knowledge → Output。新增 Main / Output 默认相对目录，空值为根目录；旧配置以空目录兼容，无需改写来源或正式版配置。
+- 创建弹窗仅填写标题和选择参考资料，目标仓库与目录只读展示。后端从持久配置取目录，不接受客户端临时目标；缺少角色、目录失效、路径逃逸或冲突时停止，不回退来源仓库。
+- 设置保存校验 Windows 目录名及真实目标路径，写入前再次校验；角色变更保留其他配置，切换目标仓库时清空该阶段目录以避免沿用错误目录。
+- 取消笔记标题及笔记行的悬停背景，保留操作按钮反馈与键盘焦点。补充配置兼容、目标路由和前端回归，完成本地构建，不提交、推送或发布。
+
+## 2.0 独立预览更新通道（2026-10-03 已授权）
+
+- 发布 `2.0.0-preview.1`，保持 `codex/obsidian-hub-2.0`、独立安装身份和 AppData；不修改 master 或正式版更新源。
+- 预览客户端仅访问 `releases/download/v2-preview-channel/latest.json`。版本包发布到独立版本标签，通道只保存指向版本包的签名清单；两者均为预发布且不设为 Latest。
+- 沿用已有签名密钥和公钥，不修改密钥、系统环境或 CI。发布工具校验版本、应用身份、安装包名称及通道，拒绝混用正式/预览配置。
+- preview.0 仍内置正式更新源，必须手动安装一次 preview.1；此后通过预览通道更新。不得通过替换正式清单解决首次迁移。
+- 同步规则、说明和测试，运行前后端验证及正式签名构建，检查提交范围后仅推送 2.0 分支与预览标签，发布后核对清单、下载文件和正式 Latest 不变。实际安装由用户验收。
+
 > 状态：核心流程已实现并由用户验收；独立 Bridge 与可靠性优化已确认实施  
 > 平台：Windows 11 优先  
 > 更新日期：2026-09-22
@@ -678,3 +711,160 @@ src-tauri/src/
 - 追加用户确认：按钮和弹窗统一使用主页暗色语义变量，避免系统浅色偏好造成白色控件；主操作采用低亮度暖色背景。
 
 - 实施结果：更新入口、暗色样式及设置占位移除完成；78 项测试与签名构建通过。正式 0.4.0 安装包、签名与 latest.json 已经用户确认发布到 GitHub Latest；线上清单及下载验证通过。真实跨版本升级仍待实机验收。
+
+## 24. Obsidian Hub 2.0 第一阶段（2026-10-02，实施中）
+
+实施分支：`codex/obsidian-hub-2.0`，从当前 `master` 创建。2.0 的规划后续修改、代码、测试和构建均在该分支进行；`master` 保持 1.0 版本基线。未经用户确认，不合并、不提交、不推送、不发布。
+
+### 24.1 产品判断
+
+2.0 不重写现有 Hub + Bridge，而是在已验收的启动、登记、跨库浏览和只读预览之上增加“角色、聚合、工作流”三层能力。第一阶段目标是让 Echo → Main → Output 的人工知识流真正跑通；AI 只预留上下文边界，不在本阶段开发 Agent、Embedding、GraphRAG、向量数据库或自动改写。
+
+Knowledge Vault 是 Main 的旁路增强来源，不是强制流转节点。Hub Vault 只承载 MOC、Workspace、Workflow、模板和中间稿，不保存业务知识的最终版本，也不得逐步演化成第五个 Main Vault。
+
+### 24.2 第一阶段范围
+
+包含：
+
+1. 为登记仓库配置 `hub`、`echo`、`main`、`knowledge`、`output`、`other` 角色，并要求五个核心角色在参与工作流前唯一且路径有效。
+2. 初始化或校验 Hub Vault 的 `00 Home/`、`01 MOC/`、`02 Topics/`、`03 Workspace/Cognition/`、`03 Workspace/Output/`、`03 Workspace/Scratch/`、`04 Workflow/`、`05 System/Templates/`、`05 System/Registry/`、`05 System/Config/` 目录约定。初始化必须由用户显式触发。
+3. 建立 Hub 桌面端聚合索引，提供 Today、全局任务、Echo Inbox、Processing Inbox、Continue Working、Recent Activity、Recent Knowledge、Recent Cognition、Recent Output、Knowledge Flow 和 Vault Status 所需数据。
+4. 提供标题、路径、别名与标签级的跨 Vault 搜索；首阶段不做正文全文检索。
+5. 实现四个显式工作流动作：`Develop`、`Promote to Main`、`Create Output`、`Publish to Output`。
+6. 全局任务继续以原 Markdown 为事实来源；Today Plan 只保存用户当日选择的任务引用，不复制任务正文成为第二份事实来源。
+7. 保留现有 Vault 启动、Bridge 安装、跨库链接、预览和手动更新能力。
+
+暂缓：
+
+- Claudian 内部 API 集成、自动检索和自动改写；第一阶段只定义可供后续使用的显式上下文 DTO。
+- 正文全文搜索、向量索引、Knowledge Graph、自动知识搬运、自动生成认知。
+- Git、同步、容量分析、后台守护、静默更新、公开发布和跨平台正式支持。
+- Echo 的自动 Archive 语义；在归档目录和 frontmatter 规则确认前，只提供 Reviewed 状态。
+
+### 24.3 数据与架构决策
+
+2.0 预览版使用独立应用标识 `io.github.obsidian-hub.v2preview`、独立安装名称和 AppData。首次运行只读导入 1.0 正式版 `config.json`，复制到预览版专属目录后迁移为 schemaVersion 2；不改写正式版配置。预览版内部的 `config.json` 是其唯一登记事实来源，Bridge 安装时读取该预览登记表。正式版与预览版并行使用时，后续仓库登记变更不会自动双向同步。预览包不生成正式更新签名产物，不要求或使用正式版私钥。
+
+预览版配置结构：
+
+```text
+AppConfigV2
+├── preferences（沿用现有字段）
+├── vaults[]
+│   ├── 现有 VaultEntry 字段
+│   └── role: hub | echo | main | knowledge | output | other | null
+└── workspace
+    ├── hubVaultId
+    └── initializedAt
+```
+
+- schemaVersion 1 自动迁移到 2；旧仓库 `role` 默认为 `null`，不得依据名称猜测角色。
+- Bridge 继续只读登记表，并同时接受 schemaVersion 1 与 2 中它需要的 `id/name/path` 字段。
+- 新聚合模块放在 Rust 侧，负责受限扫描、实时文件校验、任务解析和稳定 DTO；React 不直接访问 Tauri 或文件系统。
+- 聚合缓存与配置分离。磁盘缓存只保存可重建的文件元数据和扫描时间，不保存笔记正文或任务正文；任务文本仅保留在进程内存。
+- 复用唯一的忽略目录、Markdown 元数据与路径校验规则，逐步消除 `overview`、`note_index` 和 Bridge 本地索引之间的重复实现。
+- 新增写入能力不经过 Bridge。Bridge 保持跨库读取、预览、链接与打开职责；Hub 的 Rust 应用服务承载所有用户显式触发的文件创建、任务勾选和跨 Vault 移动。
+
+建议模块边界：
+
+```text
+React pages/features
+  -> dashboard/workflow/task/search services
+    -> typed Tauri gateway
+      -> workspace_index（只读聚合）
+      -> workspace_actions（显式写入）
+        -> validated vault roots + atomic file operations
+```
+
+### 24.4 写入与并发安全
+
+2.0 会改变当前“默认只读”的产品边界，实施前必须同步更新 `CLAUDE.md` 与 `AGENTS.md`。允许的写操作只包括：
+
+- 在用户指定的 Hub Vault Workspace 中创建中间稿。
+- 用户点击 Promote/Publish 后，将对应 Workspace 文件移动到已配置的 Main/Output Vault。
+- 用户点击任务复选框后，修改来源 Markdown 中匹配的单个 task marker。
+- 保存 Today Plan、Reviewed 状态等 Hub 自身工作流状态。
+
+每次写入必须同时满足：仓库角色已配置、真实路径位于登记根目录内、拒绝符号链接逃逸、Markdown 扩展名白名单、目标冲突不覆盖、临时文件加原子替换、写前校验文件修改时间或内容摘要。源文件已变化时返回冲突，让用户刷新后重试，不做静默合并。
+
+Promote/Publish 默认采用“目标落盘成功并校验后移除 Workspace 源文件”的移动语义；这是文件删除效果，必须由本计划确认一并取得授权。失败时保留源文件，禁止产生半完成状态。
+
+### 24.5 工作流元数据
+
+Workspace 草稿使用受控 frontmatter，保留来源与血缘，不直接改写原始 Echo/Main 正文：
+
+```yaml
+hub_id: <uuid>
+hub_stage: cognition-draft | output-draft
+origin:
+  vault_id: <id>
+  path: <relative-path>
+derived_from:
+  - vault_id: <id>
+    path: <relative-path>
+references: []
+created_at: <ISO-8601>
+```
+
+- `Develop`：复制 Echo 正文到 Cognition Draft，并记录来源；不自动删除或改写 Echo。
+- `Promote to Main`：移动 Cognition Draft 到 Main，保留 lineage frontmatter。
+- `Create Output`：以 Main 为来源创建 Output Draft，不修改 Main。
+- `Publish to Output`：移动 Output Draft 到 Output，保留 lineage frontmatter。
+- 同名目标必须要求用户更名或取消，不自动覆盖，也不静默追加序号。
+
+### 24.6 页面与交付顺序
+
+Hub 采用单窗口多视图导航：`Home / Vaults / Tasks / Search / Workflow`。AI 入口仅在有真实 Claudian 接入协议后加入，避免占位功能。
+
+1. **H2.0-P0 规则与配置**：确认写入边界；同步规则；实现 schemaVersion 2、角色配置、Hub Vault 结构校验和迁移测试。
+2. **H2.0-P1 只读聚合**：实现统一索引与缓存；交付 Home Dashboard、跨库元数据搜索、全局任务只读视图、Recent 与 Flow 指标。
+3. **H2.0-P2 显式工作流**：实现 Develop、Promote、Create Output、Publish、Today Plan、Reviewed 和任务勾选；补齐冲突、回滚与路径安全测试。
+4. **H2.0-P3 体验与可靠性**：键盘操作、空/加载/部分失败状态、性能基线、Windows 11 实机验收、文档和清理。
+
+每个阶段独立通过格式、Lint、类型检查、前端测试、Bridge 测试、Rust 测试与 Debug 构建后，才进入下一阶段；不把整个 2.0 累积到最后一次验证。
+
+### 24.7 第一阶段验收
+
+1. 用户可明确指定五类核心 Vault 与唯一 Hub Vault，旧配置无损迁移，Bridge 仍可独立读取登记表。
+2. Hub 退出重开后能从本地重建 Dashboard；单个 Vault 离线只降级对应模块，不阻断其他 Vault。
+3. 全局任务显示来源 Vault、相对路径、行位置和完成状态；勾选只修改原任务，文件并发变化时拒绝写入并提示刷新。
+4. Echo 可创建 Cognition Draft，Draft 可安全进入 Main；Main 可创建 Output Draft，Draft 可安全进入 Output。
+5. 所有流转保留可解析的 lineage；任何失败都不覆盖目标、不丢失 Workspace 源文件。
+6. 搜索首阶段覆盖标题、路径、别名和标签，并能打开或预览命中笔记。
+7. 现有启动器、Bridge、更新能力与 schemaVersion 1 用户数据均无回归。
+8. 不新增数据库与大型运行时依赖，不记录笔记正文、任务正文、密钥或无必要完整路径到日志。
+
+### 24.8 实施确认
+
+用户于 2026-10-02 回复“实施”，确认此前提出的计划及以下写入边界：
+
+1. 同意把 Hub 的安全边界扩展为上述“仅用户显式触发、仅登记 Vault、仅受控 Markdown”的写入模型，并同步修改 `CLAUDE.md` 与 `AGENTS.md`。
+2. 同意 Promote/Publish 成功后移除 Workspace 源文件；失败时必须保留。
+3. 同意全局任务勾选直接修改原始 Markdown 的单个 task marker，并采用并发冲突拒绝策略。
+4. 同意第一阶段暂不做 Claudian 内部集成、正文全文搜索与 Echo 自动 Archive，先交付可验证的知识流闭环。
+
+### 24.9 本轮实施结果与待验收
+
+- 已交付独立标识的 `2.0.0-preview.0` 本地预览包；正式版 `master` 和正式 AppData 未改动。首次运行只读复制旧登记表到预览 AppData，随后在预览目录内完成 v1 → v2 迁移。
+- 已实现角色配置、Hub Vault 显式初始化、工作台元数据缓存、Home/Tasks/Search/Workflow 视图、Today Plan、Reviewed、四个工作流动作和原 Markdown 任务勾选。
+- Rust 写入层使用登记 ID、相对 Markdown 路径、真实路径边界、目标不覆盖、内容摘要复查与目标落盘校验。流转成功才移除 Workspace 源文件。
+- 自动化覆盖临时 Vault 的 Echo → Main → Output 完整链路、重名拒绝、过期摘要、Hub 目录保留已有文件和 Bridge v1/v2 登记表兼容。
+- 尚未完成真实 Vault 的 Windows 11 手工验收、真实规模性能基线、独立 frontmatter 解析器，以及创建/移动/任务完成事件日志。Recent Activity 和 Knowledge Flow 暂以修改时间推导，不将其标为真实流转事件。
+
+## 25. 直接创建与单页工作台（2026-10-03 用户确认实施）
+
+- 以本节替代 24 节的 Workspace 草稿搬运交互：Echo → 在 Main 创建认知笔记；Main + 可选的多份 Knowledge 资料 → 在 Output 创建输出笔记。正文完全由用户完成，Hub 不复制来源正文、不调用 AI、不删除或修改来源。
+- 新笔记采用内容标题作为文件名；默认沿用来源标题，创建前可编辑，标题与一级标题创建时一致。无日期、阶段或编号前缀；校验 Windows 文件名、相对目录和同名冲突，不覆盖、不自动加序号。默认根目录，可填写已有子目录；尚未确认的持久默认目录设置不引入配置迁移。
+- 新笔记记录创建时间、来源仓库 ID 与路径，并生成 Bridge 可识别的跨库链接。源笔记与 Knowledge 引用均校验登记角色、真实路径与内容摘要。笔记改名后的自动追踪不在本轮范围内。
+- 移除旧草稿创建／搬运命令及界面入口，已有 Hub 草稿保持原文件，可从最近内容或搜索打开；保留旧 Hub 角色登记兼容，不再要求 Hub Vault 初始化。
+- 首页为单列单页工作台：今日摘要、继续最近笔记、统一工作清单、流程筛选和仓库状态摘要。搜索直接筛选当前主页；清单分页，配置与创建使用可访问弹窗。仓库管理继续复用已有启动器能力，作为辅助管理入口。
+- 复用现有 features/workspace 目录，页面、创建弹窗、名称校验按职责拆分；不新增目录、运行时依赖或数据库。清理被替代代码，不删除用户笔记或仓库文件。
+- 验收：无 Hub 仓库也能完成 Echo → Main → Output；多选资料链接可解析；来源不变；重名、非法名称、越界、角色错误、源内容变化拒绝写入；1180×760 首屏无纵向滚动，较小窗口可访问全部控件；执行前后端测试、检查和 Debug 打包。
+
+### 25.1 实施与验证结果
+
+- 已实现直接创建 Main／Output、可编辑标题与已有相对目录、多选 Knowledge 资料、来源属性和 Bridge 跨库链接。来源正文未复制，来源文件与旧 Hub Workspace 文件保留；旧草稿搬运入口已清理。
+- 已交付单列工作台、同页搜索与筛选、按实际清单高度分页、角色配置及创建弹窗。仓库管理复用现有启动器；工作台去掉旧启动器背景和重复状态栏。
+- 前端 88 项、Bridge 16 项、Rust 25 项测试通过；最终布局改动后的 App／工作台 19 项定向回归通过。格式、Lint、类型检查通过。
+- 浏览器使用模拟仓库验证三种窗口（1180×760、900×600、680×520）的六类清单：无整页溢出，记录与分页栏无重叠，底部流程可见；验证两种创建、多资料选择、非法名拒绝、小窗口弹窗、Esc 关闭和仓库管理往返。文件层使用临时真实目录验证完整创建链路与来源保留。
+- 仍需用户在真实 Obsidian 环境验收 URI 跳转及 Bridge 链接点击。笔记改名后不会自动修复跨库路径；目标目录默认为根目录，可在每次创建时调整，尚未引入持久默认目录设置。

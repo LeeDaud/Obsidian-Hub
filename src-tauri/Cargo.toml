@@ -1,6 +1,6 @@
 [package]
 name = "obsidian-hub"
-version = "0.4.0"
+version = "2.0.0-preview.1"
 description = "A fast launcher for Obsidian vaults"
 authors = ["Obsidian Hub contributors"]
 edition = "2024"
@@ -25,3 +25,5 @@ rand = "0.9"
 tokio = { version = "1", features = ["net", "sync"] }
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+sha2 = "0.10"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

@@ -1,5 +1,15 @@
 # Hub 更新与发布
 
+## 2.0 预览通道
+
+2.0 使用独立安装身份 `io.github.obsidian-hub.v2preview` 和 AppData，客户端只读取 `https://github.com/LeeDaud/Obsidian-Hub/releases/download/v2-preview-channel/latest.json`。签名沿用现有密钥，不生成或覆盖密钥。
+
+preview.0 内置正式更新源，必须手动安装一次 preview.1；不能靠发布清单远程修改旧客户端地址。首次迁移后，通过 Hub 检查后续预览更新；当前版本与清单相同会显示已是最新。
+
+预览包按版本标签（如 `v2.0.0-preview.1`）发布安装包、签名和清单，必须使用 `--prerelease --latest=false`。另建 `v2-preview-channel` 预发布，只上传同一轮构建的 `latest.json`；其下载 URL 指向不可变版本包，不指向通道标签下的安装包。未来发布先上传并验证版本包，再更新通道清单，避免悬空链接。不可替换正式 Latest 的清单，也不可把预览设为 Latest。Debug 产物禁止公开发布。
+
+以下正式通道说明继续适用于 1.0；本分支的 `pnpm update:build` 生成预览版正式构建产物 `Obsidian Hub 2 Preview_<版本>_x64-setup.exe` 和签名。实际安装升级仍需用户验收。
+
 ## 用户更新
 
 Hub 0.4.0 起提供主页“检查更新”。点击后读取本项目 GitHub Releases 的更新清单，展示版本与说明；点击“下载并安装”后才下载并验证更新签名。Windows 安装阶段退出 Hub，安装完成后重新启动。此功能只更新 Hub，仓库中的 Bridge 仍通过原有入口更新。
