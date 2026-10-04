@@ -206,11 +206,20 @@ describe('WorkspacePage', () => {
     );
   });
 
-  it('changes the original task using line and content token', async () => {
+  it('updates one task in place without rescanning the workspace', async () => {
     const user = userEvent.setup();
     const api = gateway();
+    let finish!: (value: { vaultId: string; relativePath: string; contentHash: string }) => void;
+    vi.mocked(api.setWorkspaceTaskComplete!).mockImplementation(
+      () => new Promise((resolve) => (finish = resolve)),
+    );
     render(<WorkspacePage config={config} gateway={api} onConfigChange={vi.fn()} />);
-    await user.click(await screen.findByRole('checkbox', { name: '完成 Review idea' }));
+    const checkbox = await screen.findByRole('checkbox', { name: '完成 Review idea' });
+    await waitFor(() => expect(api.scanWorkspace).toHaveBeenCalledTimes(1));
+    await user.click(checkbox);
+    expect(checkbox).toBeChecked();
+    expect(checkbox).toBeDisabled();
+    expect(api.scanWorkspace).toHaveBeenCalledTimes(1);
     await waitFor(() =>
       expect(api.setWorkspaceTaskComplete).toHaveBeenCalledWith(
         'echo',
@@ -220,6 +229,24 @@ describe('WorkspacePage', () => {
         true,
       ),
     );
+    finish({ vaultId: 'echo', relativePath: 'Idea.md', contentHash: 'updated-hash' });
+    await waitFor(() => expect(checkbox).not.toBeDisabled());
+    expect(api.scanWorkspace).toHaveBeenCalledTimes(1);
+  });
+
+  it('rolls back an optimistic task update when the file write fails', async () => {
+    const user = userEvent.setup();
+    const api = gateway();
+    vi.mocked(api.setWorkspaceTaskComplete!).mockRejectedValue({
+      code: 'CONTENT_CHANGED',
+      message: '源笔记已变化，请刷新后重试。',
+    });
+    render(<WorkspacePage config={config} gateway={api} onConfigChange={vi.fn()} />);
+    const checkbox = await screen.findByRole('checkbox', { name: '完成 Review idea' });
+    await user.click(checkbox);
+    expect(await screen.findByRole('alert')).toHaveTextContent('源笔记已变化，请刷新后重试。');
+    expect(checkbox).not.toBeChecked();
+    expect(api.scanWorkspace).toHaveBeenCalledTimes(1);
   });
 
   it('creates an Output note with selected Knowledge references', async () => {

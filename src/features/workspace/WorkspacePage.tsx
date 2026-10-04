@@ -60,6 +60,7 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
   const [pageSize, setPageSize] = useState(rowsForWindow);
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [pendingTaskFiles, setPendingTaskFiles] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [showSetup, setShowSetup] = useState(false);
@@ -214,22 +215,68 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
   }
   async function updateTask(task: WorkspaceTask) {
     if (!gateway.setWorkspaceTaskComplete) return;
-    setSaving(true);
+    const fileKey = `${task.vaultId}:${task.relativePath}`;
+    if (pendingTaskFiles.has(fileKey)) return;
+    const nextComplete = !task.complete;
+    setPendingTaskFiles((current) => new Set(current).add(fileKey));
     setError(null);
+    setSnapshot((current) =>
+      current
+        ? {
+            ...current,
+            tasks: current.tasks.map((item) =>
+              item.id === task.id ? { ...item, complete: nextComplete } : item,
+            ),
+          }
+        : current,
+    );
     try {
-      await gateway.setWorkspaceTaskComplete(
+      const result = await gateway.setWorkspaceTaskComplete(
         task.vaultId,
         task.relativePath,
         task.lineNumber,
         task.contentHash,
-        !task.complete,
+        nextComplete,
       );
-      await refresh();
-      setMessage('已更新来源笔记中的任务。');
+      setSnapshot((current) =>
+        current
+          ? {
+              ...current,
+              notes: current.notes.map((note) =>
+                note.vaultId === task.vaultId && note.relativePath === task.relativePath
+                  ? { ...note, contentHash: result.contentHash }
+                  : note,
+              ),
+              tasks: current.tasks.map((item) =>
+                item.vaultId === task.vaultId && item.relativePath === task.relativePath
+                  ? {
+                      ...item,
+                      contentHash: result.contentHash,
+                      complete: item.id === task.id ? nextComplete : item.complete,
+                    }
+                  : item,
+              ),
+            }
+          : current,
+      );
     } catch (reason) {
+      setSnapshot((current) =>
+        current
+          ? {
+              ...current,
+              tasks: current.tasks.map((item) =>
+                item.id === task.id ? { ...item, complete: task.complete } : item,
+              ),
+            }
+          : current,
+      );
       setError(toAppError(reason).message);
     } finally {
-      setSaving(false);
+      setPendingTaskFiles((current) => {
+        const next = new Set(current);
+        next.delete(fileKey);
+        return next;
+      });
     }
   }
   async function toggleReviewed(note: WorkspaceNote) {
@@ -346,6 +393,7 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
     );
   }
   function taskRow(task: WorkspaceTask) {
+    const fileKey = `${task.vaultId}:${task.relativePath}`;
     const source = notes.find(
       (note) => note.vaultId === task.vaultId && note.relativePath === task.relativePath,
     );
@@ -355,7 +403,7 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
           type="checkbox"
           aria-label={'完成 ' + task.text}
           checked={task.complete}
-          disabled={disabled}
+          disabled={busy || pendingTaskFiles.has(fileKey)}
           onChange={() => void updateTask(task)}
         />
         <div className="workspace-row-copy">
