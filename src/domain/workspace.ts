@@ -23,7 +23,28 @@ export interface WorkspaceTask {
   contentHash: string;
 }
 
+export interface WorkflowNoteRef {
+  vaultId: string;
+  relativePath: string;
+}
+export interface WorkflowLink {
+  source: WorkflowNoteRef;
+  target: WorkflowNoteRef;
+  kind: 'origin' | 'reference';
+}
+export interface WorkflowLinkStore {
+  schemaVersion: 1;
+  links: WorkflowLink[];
+}
+export interface WorkflowLinkRequest {
+  link: WorkflowLink;
+  sourceHash: string;
+  targetHash: string;
+  linked: boolean;
+}
+
 export interface WorkspaceSnapshot {
+  relations?: WorkflowLink[];
   notes: WorkspaceNote[];
   tasks: WorkspaceTask[];
   vaultStatuses: Array<{ vaultId: string; online: boolean; readErrors: number }>;

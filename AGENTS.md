@@ -30,6 +30,8 @@
 - 子项目规划先更新 `docs/plan/plan.md`，再更新 `docs/todo/todo.md`。
 - 前端采用“Obsidian 原生感”而非像素级复刻；若引入 `000-styleseed/engine/`，必须遵循其中的 `DESIGN-LANGUAGE.md` 和 `CLAUDE.md`，完成后运行 `/ss-review`。
 
+- 工作台提供四库流程看板，默认仍为全部任务。关系只由 origin/references 或用户确认的 Hub 手动关联产生；同名仅为候选。手动关系存于预览 AppData workflow-links-v1.json（schemaVersion 1），不改写已有笔记；写入校验角色、真实路径和内容摘要。笔记按仓库 ID＋相对路径识别，改名或离线提示断链，不自动猜测关系。
+
 ## 同步规则
 
 `CLAUDE.md` 是完整规则与事实来源。规则变化时先更新 `CLAUDE.md`，并在同一轮同步本文件，避免两套约束漂移。

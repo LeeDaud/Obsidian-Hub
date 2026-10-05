@@ -17,6 +17,8 @@ import type {
   WorkspaceSnapshot,
   WorkspaceState,
   WorkflowEventQuery,
+  WorkflowLinkStore,
+  WorkflowLinkRequest,
 } from '../domain/workspace';
 
 export interface VaultGateway {
@@ -51,6 +53,8 @@ export interface VaultGateway {
   loadWorkspaceState?(): Promise<WorkspaceState>;
   setTodayTask?(date: string, taskId: string, selected: boolean): Promise<WorkspaceState>;
   setEchoReviewed?(noteId: string, reviewed: boolean): Promise<WorkspaceState>;
+  loadWorkflowLinks?(): Promise<WorkflowLinkStore>;
+  setWorkflowLink?(request: WorkflowLinkRequest): Promise<WorkflowLinkStore>;
   loadWorkflowEvents?(): Promise<WorkflowEventQuery>;
   clearWorkflowEvents?(): Promise<WorkflowEventQuery>;
 }
@@ -226,6 +230,20 @@ export const tauriVaultGateway: VaultGateway = {
   async setEchoReviewed(noteId, reviewed) {
     try {
       return await invoke<WorkspaceState>('set_echo_reviewed', { noteId, reviewed });
+    } catch (reason) {
+      throw toAppError(reason);
+    }
+  },
+  async loadWorkflowLinks() {
+    try {
+      return await invoke<WorkflowLinkStore>('load_workflow_links');
+    } catch (reason) {
+      throw toAppError(reason);
+    }
+  },
+  async setWorkflowLink(request) {
+    try {
+      return await invoke<WorkflowLinkStore>('set_workflow_link', { request });
     } catch (reason) {
       throw toAppError(reason);
     }

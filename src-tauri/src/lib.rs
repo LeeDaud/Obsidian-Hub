@@ -6,6 +6,7 @@ mod note_index;
 mod overview;
 mod vault;
 mod workflow_events;
+mod workflow_links;
 mod workspace_actions;
 mod workspace_index;
 mod workspace_state;
@@ -348,6 +349,20 @@ fn clear_workflow_events(
     workflow_events::clear(&app)
 }
 
+#[tauri::command]
+fn load_workflow_links(
+    app: tauri::AppHandle,
+) -> Result<workflow_links::LinkStore, error::AppError> {
+    workflow_links::load(&app)
+}
+#[tauri::command]
+fn set_workflow_link(
+    app: tauri::AppHandle,
+    request: workflow_links::LinkRequest,
+) -> Result<workflow_links::LinkStore, error::AppError> {
+    workflow_links::update(&app, request)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -381,7 +396,9 @@ pub fn run() {
             set_today_task,
             set_echo_reviewed,
             load_workflow_events,
-            clear_workflow_events
+            clear_workflow_events,
+            load_workflow_links,
+            set_workflow_link
         ])
         .run(tauri::generate_context!())
         .expect("error while running Obsidian Hub");

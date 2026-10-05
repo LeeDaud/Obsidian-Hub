@@ -13,6 +13,7 @@ import { CreateNoteDialog } from './CreateNoteDialog';
 import { WorkspaceDialog } from './WorkspaceDialog';
 import { NotePreviewDialog } from './NotePreviewDialog';
 import { ActivityDialog } from './ActivityDialog';
+import { WorkflowBoard } from './WorkflowBoard';
 import { noteNameError } from './noteNaming';
 import type { CrossVaultLink } from '@obsidian-hub/cross-vault-parser';
 
@@ -56,6 +57,7 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null);
   const [state, setState] = useState<WorkspaceState | null>(null);
   const [query, setQuery] = useState('');
+  const [view, setView] = useState<'list' | 'board'>('list');
   const [filter, setFilter] = useState<Filter>('tasks');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(rowsForWindow);
@@ -101,7 +103,7 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
     const resize = () => setPageSize(rowsForWindow());
     window.addEventListener('resize', resize);
     return () => window.removeEventListener('resize', resize);
-  }, []);
+  }, [view]);
   const refresh = useCallback(async () => {
     if (!gateway.scanWorkspace) return;
     const id = ++generation.current;
@@ -136,6 +138,7 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
   }, [config, refresh]);
 
   function selectFilter(next: Filter) {
+    setView('list');
     setFilter(next);
     setPage(0);
     setQuery('');
@@ -518,84 +521,111 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
           </button>
         </div>
       )}
-      <section className="workspace-focus" aria-label="继续工作">
-        <div className="workspace-focus-copy">
-          <span className="workspace-eyebrow">继续最近编辑</span>
-          <strong title={recent?.title}>{recent?.title ?? '从一个想法开始'}</strong>
-          <span className="workspace-subtle">
-            {recent
-              ? recent.vaultName + ' / ' + recent.relativePath
-              : '选一条 Echo 灵感，在 Main 开始自己的思考。'}
-          </span>
-        </div>
-        <button
-          type="button"
-          className="workspace-primary"
-          onClick={() => (recent ? void openNote(recent) : selectFilter('echo'))}
-        >
-          {recent ? '在 Obsidian 打开 ↗' : '查看灵感 →'}
+      <nav className="workspace-view-switch" aria-label="工作台视图">
+        <button type="button" aria-pressed={view === 'list'} onClick={() => setView('list')}>
+          工作清单
         </button>
-      </section>
-      <section className="workspace-worklist" aria-label="工作清单">
-        <div className="workspace-list-heading">
-          <h2>{searching ? '搜索结果' : '工作清单'}</h2>
-          <span>
-            {tasks.filter((task) => !task.complete).length} 项待办 · {inbox.length} 条待处理灵感
-          </span>
-        </div>
-        <div className="workspace-filters" aria-label="清单筛选">
-          {filters.map((item) => (
+        <button type="button" aria-pressed={view === 'board'} onClick={() => setView('board')}>
+          流程看板
+        </button>
+      </nav>
+      {view === 'board' ? (
+        <WorkflowBoard
+          config={config}
+          snapshot={snapshot}
+          gateway={gateway}
+          query={query}
+          busy={disabled}
+          onPreview={setPreviewing}
+          onOpen={(note) => void openNote(note)}
+          onCreate={(note) => setCreating({ source: note, kind: 'output' })}
+        />
+      ) : (
+        <>
+          <section className="workspace-focus" aria-label="继续工作">
+            <div className="workspace-focus-copy">
+              <span className="workspace-eyebrow">继续最近编辑</span>
+              <strong title={recent?.title}>{recent?.title ?? '从一个想法开始'}</strong>
+              <span className="workspace-subtle">
+                {recent
+                  ? recent.vaultName + ' / ' + recent.relativePath
+                  : '选一条 Echo 灵感，在 Main 开始自己的思考。'}
+              </span>
+            </div>
             <button
               type="button"
-              key={item.id}
-              aria-pressed={!searching && filter === item.id}
-              onClick={() => selectFilter(item.id)}
+              className="workspace-primary"
+              onClick={() => (recent ? void openNote(recent) : selectFilter('echo'))}
             >
-              {item.label}
+              {recent ? '在 Obsidian 打开 ↗' : '查看灵感 →'}
             </button>
-          ))}
-        </div>
-        <ul ref={listRef} className="workspace-list">
-          {taskView
-            ? visibleTasks.slice(offset, offset + pageSize).map(taskRow)
-            : visibleNotes.slice(offset, offset + pageSize).map(noteRow)}
-        </ul>
-        {!total && (
-          <div className="workspace-empty">
-            <strong>
-              {busy ? '正在读取工作空间…' : searching ? '没有找到匹配的笔记' : '这里暂时没有内容'}
-            </strong>
-            <p>可以刷新工作台，或尝试其他筛选。</p>
-          </div>
-        )}
-        <footer className="workspace-pagination">
-          <span>
-            {snapshot?.fromCache ? '缓存 · 刷新中' : '共 ' + total + ' 条'}
-            {taskView ? ' · 按来源笔记最近修改排序' : ' · 按最近修改排序'}
-          </span>
-          <div>
-            <button
-              type="button"
-              aria-label="上一页"
-              disabled={currentPage === 0}
-              onClick={() => setPage(currentPage - 1)}
-            >
-              ‹
-            </button>
-            <span>
-              {currentPage + 1} / {pages}
-            </span>
-            <button
-              type="button"
-              aria-label="下一页"
-              disabled={currentPage + 1 >= pages}
-              onClick={() => setPage(currentPage + 1)}
-            >
-              ›
-            </button>
-          </div>
-        </footer>
-      </section>
+          </section>
+          <section className="workspace-worklist" aria-label="工作清单">
+            <div className="workspace-list-heading">
+              <h2>{searching ? '搜索结果' : '工作清单'}</h2>
+              <span>
+                {tasks.filter((task) => !task.complete).length} 项待办 · {inbox.length} 条待处理灵感
+              </span>
+            </div>
+            <div className="workspace-filters" aria-label="清单筛选">
+              {filters.map((item) => (
+                <button
+                  type="button"
+                  key={item.id}
+                  aria-pressed={!searching && filter === item.id}
+                  onClick={() => selectFilter(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <ul ref={listRef} className="workspace-list">
+              {taskView
+                ? visibleTasks.slice(offset, offset + pageSize).map(taskRow)
+                : visibleNotes.slice(offset, offset + pageSize).map(noteRow)}
+            </ul>
+            {!total && (
+              <div className="workspace-empty">
+                <strong>
+                  {busy
+                    ? '正在读取工作空间…'
+                    : searching
+                      ? '没有找到匹配的笔记'
+                      : '这里暂时没有内容'}
+                </strong>
+                <p>可以刷新工作台，或尝试其他筛选。</p>
+              </div>
+            )}
+            <footer className="workspace-pagination">
+              <span>
+                {snapshot?.fromCache ? '缓存 · 刷新中' : '共 ' + total + ' 条'}
+                {taskView ? ' · 按来源笔记最近修改排序' : ' · 按最近修改排序'}
+              </span>
+              <div>
+                <button
+                  type="button"
+                  aria-label="上一页"
+                  disabled={currentPage === 0}
+                  onClick={() => setPage(currentPage - 1)}
+                >
+                  ‹
+                </button>
+                <span>
+                  {currentPage + 1} / {pages}
+                </span>
+                <button
+                  type="button"
+                  aria-label="下一页"
+                  disabled={currentPage + 1 >= pages}
+                  onClick={() => setPage(currentPage + 1)}
+                >
+                  ›
+                </button>
+              </div>
+            </footer>
+          </section>
+        </>
+      )}
       <footer className="workspace-bottom">
         <div className="workspace-flow" aria-label="知识流程">
           <button type="button" onClick={() => selectFilter('echo')}>

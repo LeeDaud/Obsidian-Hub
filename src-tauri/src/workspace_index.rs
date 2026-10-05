@@ -45,6 +45,8 @@ pub struct VaultScanStatus {
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceSnapshot {
     pub notes: Vec<IndexedNote>,
+    #[serde(default)]
+    pub relations: Vec<crate::workflow_links::Link>,
     pub tasks: Vec<TaskItem>,
     pub vault_statuses: Vec<VaultScanStatus>,
     pub scanned_at: u64,
@@ -108,6 +110,7 @@ fn save_cache(
         registry: registry_key(vaults),
         snapshot: WorkspaceSnapshot {
             notes: snapshot.notes.clone(),
+            relations: Vec::new(),
             tasks: Vec::new(),
             vault_statuses: snapshot.vault_statuses.clone(),
             scanned_at: snapshot.scanned_at,
@@ -187,6 +190,7 @@ pub fn scan(app: &AppHandle) -> Result<WorkspaceSnapshot, AppError> {
         .collect();
     let notes = note_index::build(&config.vaults);
     let mut tasks = Vec::new();
+    let mut relations = Vec::new();
     let mut read_errors: HashMap<String, usize> = HashMap::new();
     for note in &notes {
         let Some(vault) = config.vaults.iter().find(|vault| vault.id == note.vault_id) else {
@@ -210,7 +214,14 @@ pub fn scan(app: &AppHandle) -> Result<WorkspaceSnapshot, AppError> {
         }
         match fs::read(target) {
             Ok(contents) if std::str::from_utf8(&contents).is_ok() => {
-                tasks.extend(tasks_in_note(note, &contents))
+                tasks.extend(tasks_in_note(note, &contents));
+                relations.extend(crate::workflow_links::parse(
+                    std::str::from_utf8(&contents).unwrap_or_default(),
+                    crate::workflow_links::NoteRef {
+                        vault_id: note.vault_id.clone(),
+                        relative_path: note.relative_path.clone(),
+                    },
+                ));
             }
             _ => *read_errors.entry(note.vault_id.clone()).or_default() += 1,
         }
@@ -230,6 +241,7 @@ pub fn scan(app: &AppHandle) -> Result<WorkspaceSnapshot, AppError> {
     });
     let snapshot = WorkspaceSnapshot {
         notes,
+        relations,
         tasks,
         vault_statuses,
         scanned_at: SystemTime::now()
