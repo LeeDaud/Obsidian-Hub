@@ -519,8 +519,11 @@ fn enable_bridge_in_community_plugins(root: &Path) -> Result<(), AppError> {
     plugins.push(BRIDGE_PLUGIN_ID.to_owned());
     fs::create_dir_all(&obsidian_dir)
         .map_err(|_| AppError::new("BRIDGE_INSTALL_FAILED", "无法创建插件配置目录。"))?;
-    fs::write(&path, serde_json::to_vec_pretty(&plugins).unwrap_or_default())
-        .map_err(|_| AppError::new("BRIDGE_INSTALL_FAILED", "无法启用 Bridge 插件。"))?;
+    fs::write(
+        &path,
+        serde_json::to_vec_pretty(&plugins).unwrap_or_default(),
+    )
+    .map_err(|_| AppError::new("BRIDGE_INSTALL_FAILED", "无法启用 Bridge 插件。"))?;
     Ok(())
 }
 

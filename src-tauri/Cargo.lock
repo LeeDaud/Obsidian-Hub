@@ -2414,7 +2414,7 @@ dependencies = [
 
 [[package]]
 name = "obsidian-hub"
-version = "2.1.0-preview.2"
+version = "2.1.0-preview.3"
 dependencies = [
  "axum",
  "chrono",
