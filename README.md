@@ -29,7 +29,7 @@ Obsidian Hub 是一个面向 Windows 11 的多仓库启动器，并通过配套�
 - 点击笔记选中路径，再用「预览笔记」或「Obsidian」阅读；关系摘要的「定位」可滚动到对应笔记。搜索范围内没有对应卡片时可直接预览。
 - 来源实线和资料虚线只表示已确认的关系。扫描识别 Hub 生成的 JSON frontmatter `origin`、`references`；正文普通链接及相似标题不自动建立流程关系。
 - Echo 创建认知仍需先成功预览；Main 可创建输出并选择 Knowledge 资料。新文件继续写入预配置的目标目录，来源文件保持不变。
-- 「关联已有笔记」需选择目标并确认，支持 Echo→Main、Main→Output、Knowledge→Output。手动关系单独保存于预览版 AppData `workflow-links-v1.json`，不追加到原笔记 frontmatter 或正文；可解除手动关系，笔记中的来源关系保持只读。
+- 本地优化版中，选中笔记后直接在其他列的卡片上选择关联对象，再在顶部原位确认；支持从四个阶段发起来源、下游或资料关联，底层仍为 Echo→Main、Main→Output、Knowledge→Output。目标列可单独搜索，选择对象不立即写入，Esc 可取消；预览候选后保留选择。手动关系单独保存于预览版 AppData `workflow-links-v1.json`，不追加到原笔记 frontmatter 或正文；可解除手动关系，笔记中的来源关系保持只读。
 - 文件移动、重命名或仓库离线会显示断链；当前不通过标题或 `hub_id` 自动修复。外部文件变化仍需手动刷新；真实仓库与 Obsidian 跳转需要实机验收。
 
 ## 功能

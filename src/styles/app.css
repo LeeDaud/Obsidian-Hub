@@ -2607,6 +2607,8 @@ button:disabled {
   opacity: 0.7;
 }
 .workflow-column-notes {
+  --workflow-scroll-thumb: color-mix(in srgb, var(--text-muted) 22%, transparent);
+  scrollbar-gutter: stable;
   height: clamp(240px, 45vh, 480px);
   overflow: auto;
   padding: 10px;
@@ -2614,11 +2616,54 @@ button:disabled {
   flex-direction: column;
   gap: 8px;
 }
+.workflow-column-notes:hover,
+.workflow-column-notes:focus-within {
+  --workflow-scroll-thumb: color-mix(in srgb, var(--text-muted) 38%, transparent);
+}
+.workflow-column-notes::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+.workflow-column-notes::-webkit-scrollbar-track,
+.workflow-column-notes::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.workflow-column-notes::-webkit-scrollbar-thumb {
+  min-height: 32px;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-color: var(--workflow-scroll-thumb);
+  background-clip: padding-box;
+}
+.workflow-column-notes::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--text-muted) 52%, transparent);
+}
+.workflow-column-notes::-webkit-scrollbar-thumb:active {
+  background-color: var(--text-muted);
+}
+.workflow-column-notes::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .workflow-column-notes {
+    scrollbar-width: thin;
+    scrollbar-color: var(--workflow-scroll-thumb) transparent;
+  }
+}
+@media (forced-colors: active) {
+  .workflow-column-notes,
+  .workflow-column-notes:hover,
+  .workflow-column-notes:focus-within {
+    --workflow-scroll-thumb: CanvasText;
+  }
+}
 .workspace-page .workflow-card {
   flex: none;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   align-items: stretch;
   text-align: left;
   width: 100%;
@@ -2678,22 +2723,6 @@ button:disabled {
   padding-top: 12px;
   min-width: 0;
 }
-.workflow-inspector-heading {
-  display: flex;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-.workflow-inspector-heading > div:first-child {
-  display: grid;
-  gap: 5px;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.workflow-inspector-heading span {
-  font-size: 12px;
-  opacity: 0.7;
-}
 .workflow-inspector-actions {
   display: flex;
   flex-wrap: wrap;
@@ -2718,25 +2747,6 @@ button:disabled {
 .workflow-relations small {
   opacity: 0.65;
 }
-.workflow-candidates {
-  max-height: 320px;
-  overflow: auto;
-  display: grid;
-  gap: 8px;
-  margin: 12px 0;
-}
-.workflow-candidates label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px;
-}
-.workflow-candidates small {
-  display: block;
-  font-size: 12px;
-  opacity: 0.65;
-  overflow-wrap: anywhere;
-}
 @media (max-width: 1050px) {
   .workflow-board {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2746,5 +2756,189 @@ button:disabled {
   }
   .workflow-column-notes {
     height: 250px;
+  }
+}
+
+/* Association stays in the board, with separate browse and link actions. */
+.workflow-association-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--background-secondary);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 12%);
+}
+.workflow-toolbar-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.workflow-current-note {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 220px;
+}
+.workflow-current-note strong,
+.workflow-current-note span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workflow-current-note span {
+  grid-column: 1 / -1;
+}
+.workflow-current-note small,
+.workflow-current-note span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.workflow-association-hint {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.workflow-pending {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+.workflow-pending-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+.workflow-pending-endpoint {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.workflow-pending-endpoint strong,
+.workflow-pending-endpoint span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workflow-pending-endpoint small,
+.workflow-pending-endpoint span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.workflow-pending-endpoint button {
+  justify-self: start;
+  font-size: 11px;
+  padding: 3px 6px;
+}
+.workflow-pending-arrow {
+  color: var(--interactive-accent);
+  text-align: center;
+}
+.workflow-pending-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 0;
+}
+.workflow-pending-actions > span {
+  flex-basis: 100%;
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-right: auto;
+}
+.workflow-association-toolbar .workspace-alert,
+.workflow-association-toolbar .workspace-message {
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+.workflow-column.is-associable {
+  border-color: var(--border-strong);
+}
+.workflow-column-badge {
+  display: inline-block;
+  margin-left: 8px;
+  color: var(--interactive-accent);
+  font-size: 10px;
+  font-weight: normal;
+}
+.workflow-column > header input {
+  width: 100%;
+  min-width: 0;
+  margin-top: 10px;
+}
+.workspace-page .workflow-card-select {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  text-align: left;
+  background: transparent;
+}
+.workspace-page .workflow-card-select:hover:not(:disabled) {
+  background: transparent;
+}
+.workflow-card-select strong,
+.workflow-card-select span {
+  max-width: 100%;
+}
+.workflow-card-actions {
+  display: flex;
+  min-width: 0;
+}
+.workspace-page .workflow-card-actions button {
+  text-align: left;
+  padding: 5px 8px;
+  font-size: 11px;
+  width: 100%;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border-subtle);
+}
+.workflow-card-state {
+  font-size: 11px;
+  color: var(--interactive-accent);
+}
+.workspace-page .workflow-card.is-pending {
+  border-style: dashed;
+  border-color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+}
+.workflow-connectors path.is-pending {
+  stroke: var(--interactive-accent);
+  stroke-width: 2.5;
+  stroke-dasharray: 7 4;
+}
+@media (max-width: 760px) {
+  .workflow-pending {
+    display: block;
+  }
+  .workflow-pending-actions {
+    margin-top: 8px;
+  }
+  .workflow-association-toolbar {
+    padding: 10px;
+  }
+  .workflow-current-note {
+    flex-basis: 100%;
+  }
+  .workflow-pending-endpoint strong {
+    font-size: 12px;
+  }
+  .workflow-pending-actions > span {
+    flex-basis: 100%;
   }
 }

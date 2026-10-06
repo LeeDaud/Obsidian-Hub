@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p \"D:\\\\AAA-Project\\\\034-Obsidian-Web-Capture\")",
+      "Read(//d/AAA-Project/**)",
+      "Bash(pnpm init *)",
+      "Bash(pnpm -C \"D:\\\\AAA-Project\\\\034-Obsidian-Web-Capture\" add @milkdown/kit @milkdown/prose)",
+      "Bash(pnpm -C \"D:\\\\AAA-Project\\\\034-Obsidian-Web-Capture\" add -D vite vite-plugin-singlefile typescript)",
+      "WebFetch(domain:milkdown.dev)",
+      "Bash(pnpm -C \"D:/AAA-Project/034-Obsidian-Web-Capture\" add @milkdown/theme-nord)",
+      "Bash(pnpm -C \"D:/AAA-Project/034-Obsidian-Web-Capture\" typecheck)",
+      "Bash(pnpm -C \"D:/AAA-Project/034-Obsidian-Web-Capture\" build)",
+      "Bash(node *)",
+      "Read(//c/Users/10159/AppData/Local/ms-playwright/**)",
+      "Bash(npm ls *)",
+      "Bash(PLAYWRIGHT_BROWSERS_PATH=\"C:/Users/10159/AppData/Local/ms-playwright\" node verify.cjs)",
+      "Bash(PLAYWRIGHT_BROWSERS_PATH=\"C:/Users/10159/AppData/Local/ms-playwright\" node diag.cjs)",
+      "Bash(git commit *)",
+      "Bash(pnpm typecheck *)"
+    ]
+  }
+}
