@@ -25,11 +25,11 @@ use crate::{
     config,
     error::AppError,
     note_index::{self, IndexedNote},
+    workspace_actions,
 };
 
 const SERVICE_FILE: &str = "bridge-service.json";
 const INDEX_FILE: &str = "note-index.json";
-const MAX_NOTE_CONTENT_BYTES: u64 = 2 * 1024 * 1024;
 const BRIDGE_PLUGIN_ID: &str = "obsidian-hub-bridge";
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -64,14 +64,17 @@ struct ApiErrorBody {
 }
 #[derive(Serialize)]
 struct ApiError {
-    code: &'static str,
-    message: &'static str,
+    code: String,
+    message: String,
 }
-fn api_error(status: StatusCode, code: &'static str, message: &'static str) -> Response {
+fn api_error(status: StatusCode, code: impl Into<String>, message: impl Into<String>) -> Response {
     (
         status,
         Json(ApiErrorBody {
-            error: ApiError { code, message },
+            error: ApiError {
+                code: code.into(),
+                message: message.into(),
+            },
         }),
     )
         .into_response()
@@ -288,55 +291,20 @@ async fn note_content(
             );
         }
     };
-    let Some(vault) = config.vaults.iter().find(|vault| vault.id == *vault_id) else {
-        return api_error(
-            StatusCode::NOT_FOUND,
-            "VAULT_NOT_FOUND",
-            "Target vault was not found.",
-        );
-    };
-    let Ok(root) = fs::canonicalize(&vault.path) else {
-        return api_error(
-            StatusCode::NOT_FOUND,
-            "VAULT_NOT_FOUND",
-            "Target vault was not found.",
-        );
-    };
-    let Ok(target) = fs::canonicalize(root.join(relative_path)) else {
-        return api_error(
-            StatusCode::NOT_FOUND,
-            "NOTE_NOT_FOUND",
-            "Target note was not found.",
-        );
-    };
-    if !target.starts_with(&root) {
-        return api_error(
-            StatusCode::BAD_REQUEST,
-            "INVALID_LINK",
-            "Invalid note path.",
-        );
-    }
-    let Ok(metadata) = fs::metadata(&target) else {
-        return api_error(
-            StatusCode::NOT_FOUND,
-            "NOTE_NOT_FOUND",
-            "Target note was not found.",
-        );
-    };
-    if metadata.len() > MAX_NOTE_CONTENT_BYTES {
-        return api_error(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "NOTE_TOO_LARGE",
-            "Target note is too large to preview.",
-        );
-    }
-    match fs::read_to_string(target) {
-        Ok(content) => Json(serde_json::json!({"note": note, "content": content})).into_response(),
-        Err(_) => api_error(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "NOTE_READ_FAILED",
-            "Target note could not be read as text.",
-        ),
+    match workspace_actions::read_preview_with_config(&config, vault_id, relative_path, None) {
+        Ok(preview) => {
+            Json(serde_json::json!({"note": note, "content": preview.content})).into_response()
+        }
+        Err(error) => {
+            let status = match error.code {
+                "NOTE_PATH_INVALID" => StatusCode::BAD_REQUEST,
+                "NOTE_TOO_LARGE" => StatusCode::PAYLOAD_TOO_LARGE,
+                "NOTE_ENCODING_INVALID" => StatusCode::UNPROCESSABLE_ENTITY,
+                "VAULT_NOT_FOUND" | "VAULT_OFFLINE" | "NOTE_NOT_FOUND" => StatusCode::NOT_FOUND,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            api_error(status, error.code, error.message)
+        }
     }
 }
 #[derive(Deserialize)]
@@ -551,8 +519,11 @@ fn enable_bridge_in_community_plugins(root: &Path) -> Result<(), AppError> {
     plugins.push(BRIDGE_PLUGIN_ID.to_owned());
     fs::create_dir_all(&obsidian_dir)
         .map_err(|_| AppError::new("BRIDGE_INSTALL_FAILED", "无法创建插件配置目录。"))?;
-    fs::write(&path, serde_json::to_vec_pretty(&plugins).unwrap_or_default())
-        .map_err(|_| AppError::new("BRIDGE_INSTALL_FAILED", "无法启用 Bridge 插件。"))?;
+    fs::write(
+        &path,
+        serde_json::to_vec_pretty(&plugins).unwrap_or_default(),
+    )
+    .map_err(|_| AppError::new("BRIDGE_INSTALL_FAILED", "无法启用 Bridge 插件。"))?;
     Ok(())
 }
 

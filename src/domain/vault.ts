@@ -2,6 +2,7 @@ export type ThemeMode = 'system' | 'light' | 'dark';
 export type SortMode = 'favoriteThenRecent' | 'recent' | 'name';
 export type VaultPathStatus = 'checking' | 'valid' | 'invalid';
 export type BridgeState = 'checking' | 'not-installed' | 'installed' | 'outdated' | 'unknown';
+export type VaultRole = 'hub' | 'echo' | 'main' | 'knowledge' | 'output' | 'other';
 
 export interface BridgeStatus {
   state: Exclude<BridgeState, 'checking' | 'unknown'>;
@@ -21,6 +22,7 @@ export interface VaultEntry {
   createdAt: string;
   updatedAt: string;
   lastOpenedAt: string | null;
+  role: VaultRole | null;
 }
 
 export interface Preferences {
@@ -29,10 +31,16 @@ export interface Preferences {
   closeAfterLaunch: boolean;
 }
 
-export interface AppConfigV1 {
-  schemaVersion: 1;
+export interface AppConfigV2 {
+  schemaVersion: 2;
   preferences: Preferences;
   vaults: VaultEntry[];
+  workspace: {
+    hubVaultId: string | null;
+    initializedAt: string | null;
+    mainFolder?: string;
+    outputFolder?: string;
+  };
 }
 
 export interface VaultListItem extends VaultEntry {

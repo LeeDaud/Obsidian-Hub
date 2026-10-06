@@ -8,7 +8,17 @@ export interface RegisteredVault {
   path: string;
 }
 
-const IGNORED_DIRECTORIES = ['.obsidian', '.git', '.trash', 'node_modules', 'target', 'dist'];
+const IGNORED_DIRECTORIES = [
+  '.obsidian',
+  '.git',
+  '.trash',
+  'node_modules',
+  'target',
+  'dist',
+  '$recycle.bin',
+  'recycler',
+  '.cache',
+];
 
 function frontmatterValues(contents: string, key: string): string[] {
   if (!contents.startsWith('---\n')) return [];

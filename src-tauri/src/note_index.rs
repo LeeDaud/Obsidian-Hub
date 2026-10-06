@@ -2,16 +2,20 @@ use std::{collections::HashMap, fs, path::Path, time::UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::VaultEntry;
+use crate::{config::VaultEntry, workspace_actions::content_hash};
 
-const IGNORED: &[&str] = &[
+pub(crate) const IGNORED_DIRECTORIES: &[&str] = &[
     ".obsidian",
     ".git",
     ".trash",
     "node_modules",
     "target",
     "dist",
+    "$recycle.bin",
+    "recycler",
+    ".cache",
 ];
+const MAX_METADATA_SOURCE_BYTES: u64 = 2 * 1024 * 1024;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,6 +30,7 @@ pub struct IndexedNote {
     pub tags: Vec<String>,
     pub modified_at: u64,
     pub size: u64,
+    pub content_hash: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -77,7 +82,7 @@ fn scan_directory(root: &Path, directory: &Path, vault: &VaultEntry, notes: &mut
         if file_type.is_dir() {
             let hidden = entry.file_name().to_string_lossy().starts_with('.');
             if hidden
-                || IGNORED.iter().any(|name| {
+                || IGNORED_DIRECTORIES.iter().any(|name| {
                     entry
                         .file_name()
                         .to_string_lossy()
@@ -103,7 +108,14 @@ fn scan_directory(root: &Path, directory: &Path, vault: &VaultEntry, notes: &mut
                 .to_string_lossy()
                 .into_owned();
             let metadata = entry.metadata().ok();
-            let contents = fs::read_to_string(&path).unwrap_or_default();
+            let contents = if metadata
+                .as_ref()
+                .is_some_and(|value| value.len() <= MAX_METADATA_SOURCE_BYTES)
+            {
+                fs::read_to_string(&path).unwrap_or_default()
+            } else {
+                String::new()
+            };
             let title = contents
                 .lines()
                 .find_map(|line| line.strip_prefix("# ").map(str::trim))
@@ -126,6 +138,7 @@ fn scan_directory(root: &Path, directory: &Path, vault: &VaultEntry, notes: &mut
                     .map(|value| value.as_millis() as u64)
                     .unwrap_or_default(),
                 size: metadata.map(|value| value.len()).unwrap_or_default(),
+                content_hash: content_hash(contents.as_bytes()),
             });
         }
     }
@@ -162,10 +175,13 @@ pub fn search(
             let title = note.title.to_lowercase();
             let path = note.relative_path.to_lowercase();
             let aliases = note.aliases.join(" ").to_lowercase();
-            if !terms
-                .iter()
-                .all(|term| title.contains(term) || path.contains(term) || aliases.contains(term))
-            {
+            let tags = note.tags.join(" ").to_lowercase();
+            if !terms.iter().all(|term| {
+                title.contains(term)
+                    || path.contains(term)
+                    || aliases.contains(term)
+                    || tags.contains(term)
+            }) {
                 return None;
             }
             let score: usize = terms
@@ -290,6 +306,7 @@ mod tests {
             tags: vec![],
             modified_at: 0,
             size: 0,
+            content_hash: String::new(),
         };
         let result = search(
             &[note("Other", "tcp/other.md"), note("TCP", "network/tcp.md")],
@@ -314,6 +331,7 @@ mod tests {
             tags: vec![],
             modified_at: 0,
             size: 0,
+            content_hash: String::new(),
         };
         let notes = [
             note("Root", "Root.md"),

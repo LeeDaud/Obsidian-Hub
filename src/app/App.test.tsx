@@ -7,7 +7,8 @@ import type { VaultGateway } from '../services/vaultGateway';
 function createGateway(): VaultGateway {
   return {
     loadConfig: vi.fn().mockResolvedValue({
-      schemaVersion: 1,
+      schemaVersion: 2,
+      workspace: { hubVaultId: null, initializedAt: null },
       preferences: { theme: 'system', sortMode: 'favoriteThenRecent', closeAfterLaunch: false },
       vaults: [
         {
@@ -22,6 +23,7 @@ function createGateway(): VaultGateway {
           createdAt: '2026-07-14T00:00:00.000Z',
           updatedAt: '2026-07-14T00:00:00.000Z',
           lastOpenedAt: null,
+          role: null,
         },
       ],
     }),
@@ -56,6 +58,23 @@ function createGateway(): VaultGateway {
 }
 
 describe('App', () => {
+  it('keeps vault management as the default page and orders navigation first', async () => {
+    const gateway = createGateway();
+    const loaded = await gateway.loadConfig();
+    loaded.vaults[0].role = 'main';
+    vi.mocked(gateway.loadConfig).mockResolvedValue(loaded);
+    render(<App gateway={gateway} />);
+    await screen.findByText('TODAY · SPACES');
+    const navigation = screen.getByRole('navigation', { name: '主导航' });
+    const buttons = Array.from(navigation.querySelectorAll('button')).map(
+      (button) => button.textContent,
+    );
+    expect(buttons.slice(0, 2)).toEqual(['仓库管理', '工作台']);
+    expect(screen.getByRole('button', { name: '仓库管理' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
+  });
   it('loads and displays persisted vaults', async () => {
     const gateway = createGateway();
     render(<App gateway={gateway} />);

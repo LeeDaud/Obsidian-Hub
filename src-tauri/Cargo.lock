@@ -2414,12 +2414,14 @@ dependencies = [
 
 [[package]]
 name = "obsidian-hub"
-version = "0.4.0"
+version = "2.0.0"
 dependencies = [
  "axum",
+ "chrono",
  "rand",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

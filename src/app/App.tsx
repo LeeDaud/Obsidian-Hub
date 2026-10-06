@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type {
-  AppConfigV1,
+  AppConfigV2,
   BridgeState,
   NewVaultInput,
   ObsidianVaultEntry,
@@ -23,6 +23,8 @@ import { LibraryOverview } from '../components/LibraryOverview';
 import { DailyPoster } from '../components/DailyPoster';
 import { QuickActionDock } from '../components/QuickActionDock';
 import { matchesVault, sortVaults } from '../features/vaults/vaultSelectors';
+import { WorkspacePage } from '../features/workspace/WorkspacePage';
+import { UpdateControl } from '../components/UpdateControl';
 import '../styles/app.css';
 
 function normalizeVaultPath(path: string): string {
@@ -42,7 +44,8 @@ interface AppProps {
 }
 
 export function App({ gateway = tauriVaultGateway }: AppProps) {
-  const [config, setConfig] = useState<AppConfigV1 | null>(null);
+  const [config, setConfig] = useState<AppConfigV2 | null>(null);
+  const [view, setView] = useState<'home' | 'vaults'>('vaults');
   const [pathStatuses, setPathStatuses] = useState<Record<string, VaultListItem['pathStatus']>>({});
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -149,7 +152,7 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
   }, [config, gateway]);
 
   useEffect(() => {
-    if (!config) return;
+    if (!config || view !== 'vaults') return;
     let cancelled = false;
     async function loadAndRefreshOverview() {
       setOverviewError(null);
@@ -173,7 +176,7 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
     return () => {
       cancelled = true;
     };
-  }, [config, gateway, overviewPaths]);
+  }, [config, gateway, overviewPaths, view]);
 
   useEffect(() => {
     if (!visibleVaults.some((vault) => vault.id === selectedId)) {
@@ -181,7 +184,7 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
     }
   }, [selectedId, visibleVaults]);
 
-  async function persist(next: AppConfigV1) {
+  async function persist(next: AppConfigV2) {
     const saved = await gateway.saveConfig(next);
     setConfig(saved);
     return saved;
@@ -243,6 +246,7 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
         createdAt: now,
         updatedAt: now,
         lastOpenedAt: null,
+        role: null,
       });
     }
     if (entries.length === 0) {
@@ -433,7 +437,14 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
     );
     if (!confirmed) return;
     try {
-      await persist({ ...config, vaults: config.vaults.filter((item) => item.id !== vault.id) });
+      await persist({
+        ...config,
+        vaults: config.vaults.filter((item) => item.id !== vault.id),
+        workspace:
+          config.workspace.hubVaultId === vault.id
+            ? { hubVaultId: null, initializedAt: null }
+            : config.workspace,
+      });
       setStatus(`已从启动器移除 ${vault.name}`);
     } catch (reason) {
       setError(toAppError(reason).message);
@@ -497,100 +508,128 @@ export function App({ gateway = tauriVaultGateway }: AppProps) {
 
   return (
     <main className="app-shell">
-      <BackgroundLayer />
-      <LauncherHeader
-        query={query}
-        sortMode={config?.preferences.sortMode ?? 'favoriteThenRecent'}
-        onQueryChange={setQuery}
-        onSearchKeyDown={handleSearchKeyDown}
-        onSortChange={(mode) => void changeSortMode(mode)}
-        onAdd={() => setShowAddDialog(true)}
-      />
-      <section className="vault-content immersive-content" aria-label="仓库列表">
-        {!config && !error ? (
-          <div className="loading-state">
-            <span />
-            <p>正在读取仓库…</p>
-          </div>
-        ) : null}
-        {!config && error ? (
-          <div className="empty-state error-state" role="alert">
-            <span className="empty-icon" aria-hidden="true">
-              !
-            </span>
-            <strong>无法读取仓库列表</strong>
-            <p>{error}</p>
-            <div>
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => window.location.reload()}
-              >
-                重新加载
-              </button>
+      {view === 'vaults' ? <BackgroundLayer /> : null}
+      {config ? (
+        <nav className="hub-navigation" aria-label="主导航">
+          {(['vaults', 'home'] as const).map((item) => (
+            <button
+              key={item}
+              type="button"
+              className={view === item ? 'is-active' : ''}
+              aria-current={view === item ? 'page' : undefined}
+              onClick={() => setView(item)}
+            >
+              {{ vaults: '仓库管理', home: '工作台' }[item]}
+            </button>
+          ))}
+          {view !== 'vaults' ? (
+            <div className="hub-navigation-update">
+              <UpdateControl />
             </div>
-          </div>
-        ) : null}
-        {config && !visibleVaults.length ? (
-          <EmptyState
-            searching={Boolean(query)}
+          ) : null}
+        </nav>
+      ) : null}
+      {view === 'vaults' ? (
+        <>
+          <LauncherHeader
+            query={query}
+            sortMode={config?.preferences.sortMode ?? 'favoriteThenRecent'}
+            onQueryChange={setQuery}
+            onSearchKeyDown={handleSearchKeyDown}
+            onSortChange={(mode) => void changeSortMode(mode)}
             onAdd={() => setShowAddDialog(true)}
-            onClear={() => setQuery('')}
           />
-        ) : null}
-        {config && visibleVaults.length ? (
-          <div className={`launcher-stage${query ? ' is-searching' : ''}`}>
-            <div className="launcher-main-column">
-              {!query ? <GreetingHeader /> : null}
-              {!query ? (
-                <div className="overview-composition">
-                  <LibraryOverview
-                    overview={overview}
-                    refreshing={overviewRefreshing}
-                    error={overviewError}
-                    onRefresh={() => void refreshOverview()}
-                  />
-                  <DailyPoster overview={overview} />
+          <section className="vault-content immersive-content" aria-label="仓库列表">
+            {!config && !error ? (
+              <div className="loading-state">
+                <span />
+                <p>正在读取仓库…</p>
+              </div>
+            ) : null}
+            {!config && error ? (
+              <div className="empty-state error-state" role="alert">
+                <span className="empty-icon" aria-hidden="true">
+                  !
+                </span>
+                <strong>无法读取仓库列表</strong>
+                <p>{error}</p>
+                <div>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => window.location.reload()}
+                  >
+                    重新加载
+                  </button>
                 </div>
-              ) : null}
-              <VaultSection
-                title={query ? '搜索结果' : '所有仓库'}
-                vaults={visibleVaults}
-                selectedId={selectedId}
-                openingId={openingId}
-                installingBridgeId={installingBridgeId}
-                bridgeStates={bridgeStates}
-                hasOutdatedBridges={hasOutdatedBridges}
-                updatingAllBridges={updatingAllBridges}
-                onSelect={setSelectedId}
-                onOpen={(vault) => void launchVault(vault)}
-                onToggleFavorite={(vault) => void toggleFavorite(vault)}
-                onRepair={(vault) => void repairVault(vault)}
-                onRemove={(vault) => void removeVault(vault)}
-                onBridgeAction={(vault) => void handleBridgeAction(vault)}
-                onUpdateAllBridges={() => void updateAllBridges()}
+              </div>
+            ) : null}
+            {config && !visibleVaults.length ? (
+              <EmptyState
+                searching={Boolean(query)}
+                onAdd={() => setShowAddDialog(true)}
+                onClear={() => setQuery('')}
               />
-              {!query ? (
-                <QuickActionDock
-                  canOpen={Boolean(
-                    selectedVault && selectedVault.pathStatus === 'valid' && !openingId,
-                  )}
-                  canPickRandom={visibleVaults.length > 0}
-                  refreshing={overviewRefreshing}
-                  onAdd={() => setShowAddDialog(true)}
-                  onRefresh={() => void refreshOverview()}
-                  onPickRandom={pickRandomVault}
-                  onOpenSelected={() => {
-                    if (selectedVault) void launchVault(selectedVault);
-                  }}
-                />
-              ) : null}
-              {!query ? <DailyClosing /> : null}
-            </div>
-          </div>
-        ) : null}
-      </section>
-      <StatusBar count={config?.vaults.length ?? 0} message={status} error={error} />
+            ) : null}
+            {config && visibleVaults.length ? (
+              <div className={`launcher-stage${query ? ' is-searching' : ''}`}>
+                <div className="launcher-main-column">
+                  {!query ? <GreetingHeader /> : null}
+                  {!query ? (
+                    <div className="overview-composition">
+                      <LibraryOverview
+                        overview={overview}
+                        refreshing={overviewRefreshing}
+                        error={overviewError}
+                        onRefresh={() => void refreshOverview()}
+                      />
+                      <DailyPoster overview={overview} />
+                    </div>
+                  ) : null}
+                  <VaultSection
+                    title={query ? '搜索结果' : '所有仓库'}
+                    vaults={visibleVaults}
+                    selectedId={selectedId}
+                    openingId={openingId}
+                    installingBridgeId={installingBridgeId}
+                    bridgeStates={bridgeStates}
+                    hasOutdatedBridges={hasOutdatedBridges}
+                    updatingAllBridges={updatingAllBridges}
+                    onSelect={setSelectedId}
+                    onOpen={(vault) => void launchVault(vault)}
+                    onToggleFavorite={(vault) => void toggleFavorite(vault)}
+                    onRepair={(vault) => void repairVault(vault)}
+                    onRemove={(vault) => void removeVault(vault)}
+                    onBridgeAction={(vault) => void handleBridgeAction(vault)}
+                    onUpdateAllBridges={() => void updateAllBridges()}
+                  />
+                  {!query ? (
+                    <QuickActionDock
+                      canOpen={Boolean(
+                        selectedVault && selectedVault.pathStatus === 'valid' && !openingId,
+                      )}
+                      canPickRandom={visibleVaults.length > 0}
+                      refreshing={overviewRefreshing}
+                      onAdd={() => setShowAddDialog(true)}
+                      onRefresh={() => void refreshOverview()}
+                      onPickRandom={pickRandomVault}
+                      onOpenSelected={() => {
+                        if (selectedVault) void launchVault(selectedVault);
+                      }}
+                    />
+                  ) : null}
+                  {!query ? <DailyClosing /> : null}
+                </div>
+              </div>
+            ) : null}
+          </section>
+        </>
+      ) : config ? (
+        <WorkspacePage config={config} gateway={gateway} onConfigChange={setConfig} />
+      ) : null}
+      {view === 'vaults' ? (
+        <StatusBar count={config?.vaults.length ?? 0} message={status} error={error} />
+      ) : null}
       {showAddDialog ? (
         <AddVaultDialog
           onChooseDirectories={chooseDirectories}

@@ -1,0 +1,1251 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'"
+    />
+    <title>Obsidian Hub · 四仓库工作流交互稿</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family:
+          Inter,
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          sans-serif;
+        --page: #fff;
+        --surface: #fafafa;
+        --hover: #f1f0f1;
+        --ink: #29292d;
+        --muted: #73737c;
+        --faint: #92929b;
+        --line: #e5e4e8;
+        --strong-line: #cfced5;
+        --accent: #b96f5a;
+        --accent-soft: #f7eeeb;
+        --knowledge: #72829a;
+        --knowledge-soft: #eff2f5;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --page: #202024;
+          --surface: #25252a;
+          --hover: #303037;
+          --ink: #e2e0e6;
+          --muted: #a19ea9;
+          --faint: #85828e;
+          --line: #37363e;
+          --strong-line: #504d59;
+          --accent: #d0836c;
+          --accent-soft: #3b302e;
+          --knowledge: #a7b8ce;
+          --knowledge-soft: #303741;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        background: var(--page);
+        color: var(--ink);
+      }
+      button,
+      input {
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:focus-visible,
+      input:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      .app {
+        display: flex;
+        flex-direction: column;
+        height: 100dvh;
+        min-height: 430px;
+      }
+      .topbar {
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        height: 50px;
+        flex: none;
+        padding: 0 26px;
+        border-bottom: 1px solid var(--line);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        font-size: 13px;
+        font-weight: 650;
+        white-space: nowrap;
+      }
+      .brand-mark {
+        width: 18px;
+        height: 18px;
+        border: 1px solid var(--accent);
+        border-radius: 5px;
+        transform: rotate(-8deg);
+      }
+      .topnav {
+        display: flex;
+        align-items: stretch;
+        height: 100%;
+        gap: 17px;
+      }
+      .topnav span {
+        display: grid;
+        place-items: center;
+        position: relative;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .topnav .active {
+        color: var(--ink);
+      }
+      .topnav .active::after {
+        content: '';
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        height: 2px;
+        background: var(--accent);
+      }
+      .prototype-tag {
+        margin-left: auto;
+        color: var(--faint);
+        font-size: 11px;
+        white-space: nowrap;
+      }
+      .content {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        width: min(1560px, 100%);
+        min-height: 0;
+        flex: 1;
+        margin: auto;
+        padding: 18px 24px 16px;
+      }
+      .heading {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 16px;
+        flex: none;
+      }
+      .eyebrow {
+        color: var(--accent);
+        font-size: 10px;
+        font-weight: 650;
+        letter-spacing: 0.12em;
+      }
+      h1 {
+        margin: 4px 0 3px;
+        font-size: 23px;
+        font-weight: 550;
+        letter-spacing: -0.03em;
+      }
+      .subtitle {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      .heading-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .search {
+        width: 200px;
+        height: 33px;
+        padding: 0 11px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--page);
+        color: var(--ink);
+        font-size: 12px;
+      }
+      .quiet-button,
+      .text-button,
+      .primary-button {
+        border: 1px solid transparent;
+        border-radius: 6px;
+        padding: 7px 10px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .quiet-button:hover,
+      .text-button:hover {
+        background: var(--hover);
+        color: var(--ink);
+      }
+      .primary-button {
+        border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-weight: 600;
+      }
+      .primary-button:hover {
+        border-color: var(--accent);
+      }
+      .flow-key {
+        display: flex;
+        align-items: center;
+        gap: 13px;
+        flex: none;
+        min-height: 27px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .flow-key strong {
+        color: var(--ink);
+        font-weight: 550;
+      }
+      .flow-key .spacer {
+        flex: 1;
+      }
+      .key-line {
+        display: inline-block;
+        width: 21px;
+        height: 0;
+        margin-right: 5px;
+        vertical-align: middle;
+        border-top: 2px solid var(--accent);
+      }
+      .key-line.reference {
+        border-color: var(--knowledge);
+        border-top-style: dashed;
+      }
+      .key-line.missing {
+        border-color: var(--faint);
+        border-top-style: dotted;
+      }
+      .board {
+        position: relative;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        min-height: 0;
+        flex: 1;
+      }
+      .lane {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        min-height: 0;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+        overflow: hidden;
+      }
+      .lane-header {
+        flex: none;
+        min-height: 72px;
+        padding: 13px 14px 10px;
+        border-bottom: 1px solid var(--line);
+      }
+      .lane-name {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        align-items: baseline;
+      }
+      .lane-name strong {
+        font-size: 15px;
+        font-weight: 600;
+      }
+      .lane-name small {
+        color: var(--faint);
+        font-size: 11px;
+      }
+      .lane-description {
+        margin-top: 5px;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.4;
+      }
+      .lane-scroll {
+        min-height: 0;
+        flex: 1;
+        padding: 8px;
+        overflow-y: auto;
+        scrollbar-gutter: stable;
+      }
+      .note,
+      .ghost {
+        display: block;
+        width: 100%;
+        margin: 0 0 5px;
+        padding: 11px 12px;
+        border: 1px solid transparent;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--ink);
+        text-align: left;
+      }
+      .note:hover,
+      .ghost:hover {
+        background: var(--hover);
+      }
+      .note.selected {
+        border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+        background: var(--accent-soft);
+      }
+      .note.related {
+        background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+      }
+      .note.related.reference-node {
+        background: var(--knowledge-soft);
+      }
+      .note.dimmed {
+        opacity: 0.48;
+      }
+      .note-row {
+        display: flex;
+        align-items: start;
+        gap: 8px;
+      }
+      .note-title {
+        min-width: 0;
+        flex: 1;
+        font-size: 13px;
+        font-weight: 550;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+      }
+      .note-indicator {
+        color: var(--accent);
+        font-size: 12px;
+        font-weight: 650;
+      }
+      .note-meta {
+        display: flex;
+        gap: 7px;
+        align-items: center;
+        margin-top: 6px;
+        color: var(--faint);
+        font-size: 10px;
+      }
+      .note-path {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .ghost {
+        border: 1px dashed var(--strong-line);
+        background: var(--page);
+        color: var(--muted);
+      }
+      .ghost strong {
+        display: block;
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: 550;
+      }
+      .ghost span {
+        display: block;
+        margin-top: 5px;
+        font-size: 11px;
+        line-height: 1.4;
+      }
+      .lane-empty {
+        padding: 20px 13px;
+        color: var(--faint);
+        font-size: 12px;
+      }
+      .links {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        overflow: visible;
+        z-index: 2;
+      }
+      .inspector {
+        display: grid;
+        grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) auto;
+        gap: 17px;
+        align-items: start;
+        flex: none;
+        height: 150px;
+        padding: 15px 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+        overflow-y: auto;
+      }
+      .detail-eyebrow {
+        color: var(--accent);
+        font-size: 10px;
+        font-weight: 650;
+        letter-spacing: 0.06em;
+      }
+      .detail-title {
+        margin: 5px 0 5px;
+        font-size: 16px;
+        font-weight: 580;
+        line-height: 1.35;
+      }
+      .detail-description {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      .detail-relations {
+        display: grid;
+        gap: 6px;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.4;
+      }
+      .relation-row {
+        display: flex;
+        gap: 6px;
+        align-items: baseline;
+        min-width: 0;
+      }
+      .relation-row b {
+        flex: none;
+        color: var(--ink);
+        font-weight: 550;
+      }
+      .relation-row button {
+        min-width: 0;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--accent);
+        text-align: left;
+        font-size: inherit;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .detail-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        align-items: stretch;
+      }
+      .detail-actions .primary-button,
+      .detail-actions .text-button {
+        text-align: center;
+      }
+      dialog {
+        width: min(470px, calc(100vw - 32px));
+        max-height: min(630px, calc(100dvh - 32px));
+        padding: 0;
+        border: 1px solid var(--strong-line);
+        border-radius: 10px;
+        background: var(--page);
+        color: var(--ink);
+        box-shadow: 0 18px 70px #0003;
+      }
+      dialog::backdrop {
+        background: #15141ac2;
+      }
+      .dialog-head {
+        padding: 19px 21px 13px;
+        border-bottom: 1px solid var(--line);
+      }
+      .dialog-head h2 {
+        margin: 0 0 5px;
+        font-size: 18px;
+        font-weight: 600;
+      }
+      .dialog-head p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      .dialog-content {
+        display: grid;
+        gap: 14px;
+        max-height: 380px;
+        padding: 17px 21px;
+        overflow-y: auto;
+      }
+      .field {
+        display: grid;
+        gap: 7px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .field input[type='text'] {
+        width: 100%;
+        height: 37px;
+        padding: 0 10px;
+        border: 1px solid var(--strong-line);
+        border-radius: 6px;
+        background: var(--surface);
+        color: var(--ink);
+      }
+      .choice {
+        display: flex;
+        gap: 9px;
+        align-items: start;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        font-size: 12px;
+      }
+      .choice:hover {
+        background: var(--hover);
+      }
+      .choice input {
+        margin-top: 2px;
+        accent-color: var(--accent);
+      }
+      .choice-text {
+        display: grid;
+        gap: 3px;
+      }
+      .choice-text small {
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .dialog-note {
+        margin: 0;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.5;
+      }
+      .dialog-error {
+        min-height: 16px;
+        color: #bb4444;
+        font-size: 11px;
+      }
+      .dialog-foot {
+        display: flex;
+        justify-content: flex-end;
+        gap: 7px;
+        padding: 12px 21px 17px;
+        border-top: 1px solid var(--line);
+      }
+      @media (max-width: 1020px) {
+        .board {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          grid-template-rows: repeat(2, minmax(0, 1fr));
+          gap: 8px;
+        }
+        .links {
+          display: none;
+        }
+        .lane-header {
+          min-height: 50px;
+          padding: 8px 10px;
+        }
+        .lane-description {
+          margin-top: 2px;
+        }
+        .lane-scroll {
+          padding: 5px;
+        }
+        .note {
+          padding: 7px 8px;
+          margin-bottom: 2px;
+        }
+        .note-meta {
+          margin-top: 3px;
+        }
+        .inspector {
+          height: 116px;
+          padding: 10px 12px;
+        }
+        .detail-title {
+          font-size: 14px;
+        }
+        .detail-description {
+          display: none;
+        }
+      }
+      @media (max-width: 690px) {
+        .topbar {
+          padding: 0 12px;
+          gap: 15px;
+        }
+        .content {
+          padding: 10px 10px 8px;
+          gap: 7px;
+        }
+        .heading {
+          align-items: start;
+        }
+        h1 {
+          font-size: 19px;
+        }
+        .subtitle,
+        .flow-key .help {
+          display: none;
+        }
+        .search {
+          width: 130px;
+        }
+        .heading-actions {
+          gap: 2px;
+        }
+        .flow-key {
+          gap: 9px;
+          font-size: 10px;
+        }
+        .inspector {
+          grid-template-columns: minmax(0, 1fr) auto;
+          height: 125px;
+          gap: 7px;
+        }
+        .detail-relations {
+          display: none;
+        }
+        .detail-actions {
+          align-self: center;
+        }
+        .note-path {
+          max-width: 130px;
+        }
+      }
+      @media (max-width: 1020px) and (max-height: 650px) {
+        .topbar {
+          height: 42px;
+        }
+        .content {
+          padding-top: 8px;
+          padding-bottom: 8px;
+          gap: 6px;
+        }
+        .eyebrow,
+        .subtitle,
+        .flow-key .help,
+        .lane-description,
+        .note-meta {
+          display: none;
+        }
+        h1 {
+          margin: 0;
+          font-size: 19px;
+        }
+        .heading {
+          align-items: center;
+        }
+        .flow-key {
+          min-height: 19px;
+        }
+        .lane-header {
+          display: flex;
+          align-items: center;
+          min-height: 38px;
+          padding: 6px 10px;
+        }
+        .lane-name {
+          width: 100%;
+        }
+        .note {
+          padding: 7px 8px;
+        }
+        .inspector {
+          height: 90px;
+        }
+        .detail-title {
+          margin: 3px 0;
+        }
+        .detail-relations {
+          gap: 2px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand"><span class="brand-mark" aria-hidden="true"></span> Obsidian Hub</div>
+        <nav class="topnav" aria-label="页面导航">
+          <span>仓库管理</span><span class="active">工作台</span>
+        </nav>
+        <span class="prototype-tag">交互稿 · 示例数据</span>
+      </header>
+      <main class="content">
+        <header class="heading">
+          <div>
+            <div class="eyebrow">WORKFLOW</div>
+            <h1>知识流</h1>
+            <p class="subtitle">选择一篇笔记，查看它的来处、去向与参考资料。</p>
+          </div>
+          <div class="heading-actions">
+            <input
+              id="search"
+              class="search"
+              type="search"
+              placeholder="筛选笔记"
+              aria-label="筛选笔记"
+            />
+            <button id="reset" class="quiet-button" type="button">重置示例</button>
+          </div>
+        </header>
+        <div class="flow-key" aria-label="连接线图例">
+          <strong>关系</strong>
+          <span><i class="key-line"></i>来源与下游</span>
+          <span><i class="key-line reference"></i>资料引用</span>
+          <span><i class="key-line missing"></i>待创建或关联</span>
+          <span class="spacer"></span>
+          <span class="help">每列按最近修改排序 · 仅显示选中笔记的关系</span>
+        </div>
+        <section id="board" class="board" aria-label="四仓库笔记看板">
+          <svg id="links" class="links" aria-hidden="true"></svg>
+        </section>
+        <aside id="inspector" class="inspector" aria-live="polite"></aside>
+      </main>
+    </div>
+    <dialog id="action-dialog" aria-labelledby="dialog-title">
+      <form id="action-form">
+        <div class="dialog-head">
+          <h2 id="dialog-title"></h2>
+          <p id="dialog-description"></p>
+        </div>
+        <div id="dialog-content" class="dialog-content"></div>
+        <div class="dialog-foot">
+          <button id="cancel-action" class="quiet-button" type="button">取消</button
+          ><button id="confirm-action" class="primary-button" type="submit">确认</button>
+        </div>
+      </form>
+    </dialog>
+    <script>
+      const stages = [
+        { id: 'echo', name: 'Echo', description: '灵感 · 思考的起点' },
+        { id: 'main', name: 'Main', description: '认知 · 由你完成正文' },
+        { id: 'output', name: 'Output', description: '输出 · 完整表达' },
+        { id: 'knowledge', name: 'Knowledge', description: '资料 · 给输出提供依据' },
+      ];
+      const initialNotes = [
+        {
+          id: 'e1',
+          stage: 'echo',
+          title: '为什么文章总是写不完？',
+          path: '灵感/写作阻力.md',
+          modified: 1791169200000,
+          excerpt: '写作时究竟卡在材料、判断，还是表达？',
+        },
+        {
+          id: 'e2',
+          stage: 'echo',
+          title: '阅读如何转化为行动',
+          path: '灵感/阅读与行动.md',
+          modified: 1791158400000,
+          excerpt: '如果知道很多，却不行动，信息究竟停在了哪里？',
+        },
+        {
+          id: 'e3',
+          stage: 'echo',
+          title: '反直觉的复利',
+          path: '灵感/复利.md',
+          modified: 1791072000000,
+          excerpt: '一个待展开的观察，尚无认知笔记。',
+        },
+        {
+          id: 'm1',
+          stage: 'main',
+          title: '写作阻力来自哪里',
+          path: '思考/写作阻力来自哪里.md',
+          modified: 1791165600000,
+          excerpt: '把写不完的问题分解为选题、论证和表达。',
+        },
+        {
+          id: 'm2',
+          stage: 'main',
+          title: '从输入到行动',
+          path: '思考/从输入到行动.md',
+          modified: 1791151200000,
+          excerpt: '标题相近，但尚未确认与 Echo 灵感的关系。',
+        },
+        {
+          id: 'm3',
+          stage: 'main',
+          title: '注意力与生产力',
+          path: '思考/注意力与生产力.md',
+          modified: 1791068400000,
+          excerpt: '已经形成认知，还没有连接到输出。',
+        },
+        {
+          id: 'k1',
+          stage: 'knowledge',
+          title: '写作认知负荷研究',
+          path: '论文/写作认知负荷.md',
+          modified: 1791162000000,
+          excerpt: '为输出笔记提供外部资料。',
+        },
+        {
+          id: 'k2',
+          stage: 'knowledge',
+          title: '行为改变模型',
+          path: '阅读/行为改变模型.md',
+          modified: 1791075600000,
+          excerpt: '已收集，尚未被当前输出引用。',
+        },
+        {
+          id: 'o1',
+          stage: 'output',
+          title: '写作阻力的四种结构',
+          path: '文章/写作阻力的四种结构.md',
+          modified: 1791167400000,
+          excerpt: '从认知笔记展开，并引用 Knowledge 资料。',
+        },
+        {
+          id: 'o2',
+          stage: 'output',
+          title: '注意力如何塑造时间',
+          path: '文章/注意力如何塑造时间.md',
+          modified: 1791061200000,
+          excerpt: '标题相关，但尚未确认其 Main 来源。',
+        },
+      ];
+      const initialRelations = [
+        { from: 'e1', to: 'm1', type: 'flow' },
+        { from: 'm1', to: 'o1', type: 'flow' },
+        { from: 'k1', to: 'o1', type: 'reference' },
+      ];
+      const suggestions = { e2: 'm2', m3: 'o2' };
+      let notes = structuredClone(initialNotes);
+      let relations = structuredClone(initialRelations);
+      let selectedId = 'e1';
+      let action = null;
+      const board = document.getElementById('board');
+      const inspector = document.getElementById('inspector');
+      const dialog = document.getElementById('action-dialog');
+
+      function node(tag, className, content) {
+        const element = document.createElement(tag);
+        if (className) element.className = className;
+        if (content != null) element.textContent = content;
+        return element;
+      }
+      function noteById(id) {
+        return notes.find((note) => note.id === id);
+      }
+      function stageById(id) {
+        return stages.find((stage) => stage.id === id);
+      }
+      function targetStage(note) {
+        return note.stage === 'echo' ? 'main' : note.stage === 'main' ? 'output' : null;
+      }
+      function outbound(note) {
+        return relations.filter(
+          (relation) => relation.from === note.id && relation.type === 'flow',
+        );
+      }
+      function relatedIds(id) {
+        const visited = new Set([id]);
+        const queue = [id];
+        while (queue.length) {
+          const current = queue.shift();
+          for (const relation of relations) {
+            const neighbor =
+              relation.from === current
+                ? relation.to
+                : relation.to === current
+                  ? relation.from
+                  : null;
+            if (neighbor && !visited.has(neighbor)) {
+              visited.add(neighbor);
+              queue.push(neighbor);
+            }
+          }
+        }
+        return visited;
+      }
+      function dateLabel(time) {
+        if (time > 1890000000000) return '刚刚';
+        return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(
+          new Date(time),
+        );
+      }
+      function renderBoard() {
+        board.querySelectorAll('.lane').forEach((lane) => lane.remove());
+        const selected = noteById(selectedId);
+        const connected = selected ? relatedIds(selected.id) : new Set();
+        const target = selected && !outbound(selected).length ? targetStage(selected) : null;
+        const query = document.getElementById('search').value.trim().toLocaleLowerCase();
+        for (const stage of stages) {
+          const lane = node('section', 'lane');
+          lane.setAttribute('aria-label', stage.name + ' 仓库');
+          const stageNotes = notes
+            .filter((note) => note.stage === stage.id)
+            .sort((a, b) => b.modified - a.modified);
+          const header = node('div', 'lane-header');
+          const name = node('div', 'lane-name');
+          name.append(node('strong', '', stage.name), node('small', '', stageNotes.length + ' 篇'));
+          header.append(name, node('div', 'lane-description', stage.description));
+          const scroll = node('div', 'lane-scroll');
+          scroll.addEventListener('scroll', drawLinks, { passive: true });
+          if (stage.id === target && !query) {
+            const ghost = node('button', 'ghost');
+            ghost.type = 'button';
+            ghost.dataset.noteId = 'ghost-' + stage.id;
+            ghost.append(
+              node('strong', '', '＋ 下一步尚未建立'),
+              node('span', '', '为「' + selected.title + '」创建或关联已有笔记'),
+            );
+            ghost.addEventListener('click', () => openAction('choose'));
+            scroll.append(ghost);
+          }
+          let shown = 0;
+          for (const note of stageNotes) {
+            if (
+              query &&
+              !note.title.toLocaleLowerCase().includes(query) &&
+              !note.path.toLocaleLowerCase().includes(query)
+            )
+              continue;
+            shown++;
+            const item = node('button', 'note');
+            item.type = 'button';
+            item.dataset.noteId = note.id;
+            item.setAttribute('aria-label', stage.name + '，' + note.title);
+            if (note.id === selectedId) {
+              item.classList.add('selected');
+              item.setAttribute('aria-current', 'true');
+            } else if (connected.has(note.id)) item.classList.add('related');
+            else if (!query) item.classList.add('dimmed');
+            if (note.stage === 'knowledge') item.classList.add('reference-node');
+            const row = node('span', 'note-row');
+            row.append(node('span', 'note-title', note.title));
+            if (connected.has(note.id) && note.id !== selectedId)
+              row.append(node('span', 'note-indicator', '↗'));
+            const meta = node('span', 'note-meta');
+            meta.append(
+              node('span', '', dateLabel(note.modified)),
+              node('span', 'note-path', note.path),
+            );
+            item.append(row, meta);
+            item.addEventListener('click', () => selectNote(note.id));
+            scroll.append(item);
+          }
+          if (!shown && !(stage.id === target && !query))
+            scroll.append(node('div', 'lane-empty', query ? '没有匹配笔记' : '暂无笔记'));
+          lane.append(header, scroll);
+          board.append(lane);
+        }
+        requestAnimationFrame(drawLinks);
+      }
+      function relationRow(label, value, targetId) {
+        const row = node('div', 'relation-row');
+        row.append(node('b', '', label));
+        if (targetId) {
+          const link = node('button', '', value);
+          link.type = 'button';
+          link.addEventListener('click', () => selectNote(targetId));
+          row.append(link);
+        } else row.append(node('span', '', value));
+        return row;
+      }
+      function renderInspector() {
+        inspector.replaceChildren();
+        const note = noteById(selectedId);
+        if (!note) return;
+        const intro = node('div');
+        intro.append(
+          node('div', 'detail-eyebrow', stageById(note.stage).name + ' · 已选中'),
+          node('h2', 'detail-title', note.title),
+          node('p', 'detail-description', note.excerpt),
+        );
+        const relationships = node('div', 'detail-relations');
+        const incoming = relations.filter(
+          (relation) => relation.to === note.id && relation.type === 'flow',
+        );
+        const outgoing = outbound(note);
+        const references = relations.filter(
+          (relation) => relation.to === note.id && relation.type === 'reference',
+        );
+        if (incoming.length)
+          for (const relation of incoming)
+            relationships.append(relationRow('来源', noteById(relation.from).title, relation.from));
+        if (outgoing.length)
+          for (const relation of outgoing)
+            relationships.append(relationRow('下游', noteById(relation.to).title, relation.to));
+        if (references.length)
+          for (const relation of references)
+            relationships.append(relationRow('资料', noteById(relation.from).title, relation.from));
+        if (note.stage === 'knowledge') {
+          const usedBy = relations.filter(
+            (relation) => relation.from === note.id && relation.type === 'reference',
+          );
+          if (usedBy.length)
+            for (const relation of usedBy)
+              relationships.append(relationRow('被引用', noteById(relation.to).title, relation.to));
+          else relationships.append(relationRow('资料', '尚未被输出引用'));
+        }
+        const next = targetStage(note);
+        if (next && !outgoing.length)
+          relationships.append(relationRow('下一步', stageById(next).name + ' 尚未建立'));
+        if (next && !outgoing.length && suggestions[note.id])
+          relationships.append(
+            relationRow('可能相关', noteById(suggestions[note.id]).title + ' · 待你确认'),
+          );
+        if (!relationships.childElementCount)
+          relationships.append(relationRow('路径', '这篇笔记没有已确认关联'));
+        const actions = node('div', 'detail-actions');
+        if (next && !outgoing.length) {
+          const create = node(
+            'button',
+            'primary-button',
+            '创建' + (next === 'main' ? '认知' : '输出') + '笔记',
+          );
+          create.type = 'button';
+          create.addEventListener('click', () => openAction('create'));
+          const link = node('button', 'text-button', '关联已有笔记');
+          link.type = 'button';
+          link.addEventListener('click', () => openAction('link'));
+          actions.append(create, link);
+        } else {
+          actions.append(
+            node(
+              'div',
+              'detail-description',
+              note.stage === 'knowledge'
+                ? '资料可在创建 Output 时选入。'
+                : note.stage === 'output'
+                  ? '已到达输出阶段。'
+                  : '继续查看右侧已关联笔记。',
+            ),
+          );
+        }
+        inspector.append(intro, relationships, actions);
+      }
+      function inScrollViewport(element) {
+        const viewport = element.closest('.lane-scroll').getBoundingClientRect();
+        const box = element.getBoundingClientRect();
+        return box.bottom > viewport.top && box.top < viewport.bottom;
+      }
+      function drawLinks() {
+        const svg = document.getElementById('links');
+        svg.replaceChildren();
+        if (window.matchMedia('(max-width: 1020px)').matches) return;
+        const selected = noteById(selectedId);
+        if (!selected || document.getElementById('search').value) return;
+        const connected = relatedIds(selected.id);
+        const rect = board.getBoundingClientRect();
+        svg.setAttribute('viewBox', `0 0 ${rect.width} ${rect.height}`);
+        const visibleRelations = relations.filter(
+          (relation) => connected.has(relation.from) && connected.has(relation.to),
+        );
+        if (targetStage(selected) && !outbound(selected).length)
+          visibleRelations.push({
+            from: selected.id,
+            to: 'ghost-' + targetStage(selected),
+            type: 'missing',
+          });
+        for (const relation of visibleRelations) {
+          const from = board.querySelector(`[data-note-id="${relation.from}"]`);
+          const to = board.querySelector(`[data-note-id="${relation.to}"]`);
+          if (!from || !to || !inScrollViewport(from) || !inScrollViewport(to)) continue;
+          const a = from.getBoundingClientRect();
+          const b = to.getBoundingClientRect();
+          const backwards = a.left > b.left;
+          const x1 = (backwards ? a.left : a.right) - rect.left;
+          const y1 = a.top + a.height / 2 - rect.top;
+          const x2 = (backwards ? b.right : b.left) - rect.left;
+          const y2 = b.top + b.height / 2 - rect.top;
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          const bend = backwards ? -25 : 25;
+          path.setAttribute(
+            'd',
+            `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`,
+          );
+          path.setAttribute('fill', 'none');
+          path.setAttribute(
+            'stroke',
+            relation.type === 'reference'
+              ? 'var(--knowledge)'
+              : relation.type === 'missing'
+                ? 'var(--faint)'
+                : 'var(--accent)',
+          );
+          path.setAttribute('stroke-width', relation.type === 'missing' ? '1.5' : '2');
+          if (relation.type !== 'flow')
+            path.setAttribute('stroke-dasharray', relation.type === 'reference' ? '5 4' : '2 5');
+          path.setAttribute('opacity', relation.type === 'missing' ? '.8' : '.9');
+          svg.append(path);
+        }
+      }
+      function selectNote(id) {
+        selectedId = id;
+        renderBoard();
+        renderInspector();
+        const selected = board.querySelector(`[data-note-id="${id}"]`);
+        selected?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        requestAnimationFrame(drawLinks);
+      }
+      function openAction(mode) {
+        const source = noteById(selectedId);
+        const target = source && targetStage(source);
+        if (!target || outbound(source).length) return;
+        action = { mode, sourceId: source.id, target };
+        document.getElementById('confirm-action').hidden = mode === 'choose';
+        const content = document.getElementById('dialog-content');
+        content.replaceChildren();
+        document.getElementById('dialog-title').textContent =
+          mode === 'choose'
+            ? '建立下一阶段'
+            : mode === 'create'
+              ? '创建' + (target === 'main' ? '认知' : '输出') + '笔记'
+              : '关联已有笔记';
+        document.getElementById('dialog-description').textContent =
+          '来源：' + source.title + '  →  ' + stageById(target).name;
+        if (mode === 'choose') {
+          content.append(
+            node(
+              'p',
+              'dialog-note',
+              '下一阶段还没有已确认关系。你可以创建空正文笔记，也可以从已有笔记中明确选择。',
+            ),
+          );
+          for (const choice of [
+            ['create', '创建新笔记', '生成示例笔记并连接来源'],
+            ['link', '关联已有', '不会因为标题相似而自动连接'],
+          ]) {
+            const button = node('button', 'choice', choice[1] + ' · ' + choice[2]);
+            button.type = 'button';
+            button.addEventListener('click', () => {
+              dialog.close();
+              openAction(choice[0]);
+            });
+            content.append(button);
+          }
+        } else if (mode === 'create') {
+          const field = node('label', 'field', '新笔记标题');
+          const input = node('input');
+          input.type = 'text';
+          input.name = 'title';
+          input.maxLength = 60;
+          input.required = true;
+          input.value =
+            target === 'main'
+              ? '关于「' + source.title + '」的认知'
+              : '关于「' + source.title + '」的输出';
+          field.append(input);
+          content.append(field);
+          if (target === 'output') {
+            content.append(node('p', 'dialog-note', '可选 Knowledge 资料（作为引用支线）：'));
+            for (const reference of notes.filter((note) => note.stage === 'knowledge')) {
+              const choice = node('label', 'choice');
+              const checkbox = node('input');
+              checkbox.type = 'checkbox';
+              checkbox.name = 'reference';
+              checkbox.value = reference.id;
+              choice.append(checkbox, node('span', 'choice-text', reference.title));
+              content.append(choice);
+            }
+          }
+          content.append(
+            node('p', 'dialog-note', '交互稿只在当前页面内模拟创建；刷新后恢复示例数据。'),
+          );
+          requestAnimationFrame(() => input.focus());
+        } else {
+          const candidates = notes.filter((note) => note.stage === target);
+          for (const candidate of candidates) {
+            const choice = node('label', 'choice');
+            const radio = node('input');
+            radio.type = 'radio';
+            radio.name = 'existing';
+            radio.value = candidate.id;
+            radio.required = true;
+            if (suggestions[source.id] === candidate.id) radio.checked = true;
+            const label = node('span', 'choice-text');
+            label.append(
+              node('span', '', candidate.title),
+              node(
+                'small',
+                '',
+                candidate.path +
+                  (suggestions[source.id] === candidate.id ? ' · 标题相近，待你确认' : ''),
+              ),
+            );
+            choice.append(radio, label);
+            content.append(choice);
+          }
+          if (!candidates.length)
+            content.append(node('p', 'dialog-note', '目标仓库暂无可关联笔记，请选择创建。'));
+          else
+            content.append(
+              node('p', 'dialog-note', '只有你确认后才建立关系；候选本身不代表已关联。'),
+            );
+        }
+        content.append(node('div', 'dialog-error'));
+        dialog.showModal();
+      }
+      document.getElementById('action-form').addEventListener('submit', (event) => {
+        event.preventDefault();
+        if (!action || action.mode === 'choose') return;
+        const form = event.currentTarget;
+        const data = new FormData(form);
+        const source = noteById(action.sourceId);
+        const error = form.querySelector('.dialog-error');
+        let targetId;
+        if (action.mode === 'create') {
+          const title = String(data.get('title') || '').trim();
+          if (
+            !title ||
+            notes.some(
+              (note) =>
+                note.stage === action.target &&
+                note.title.toLocaleLowerCase() === title.toLocaleLowerCase(),
+            )
+          ) {
+            error.textContent = '请填写不重复的标题。';
+            return;
+          }
+          targetId = 'demo-' + (notes.length + 1);
+          notes.push({
+            id: targetId,
+            stage: action.target,
+            title,
+            path: (action.target === 'main' ? '思考/' : '文章/') + title + '.md',
+            modified: 1890000000000 + notes.length,
+            excerpt: '示例空正文笔记；实际正文由你在 Obsidian 中完成。',
+          });
+          for (const id of data.getAll('reference'))
+            relations.push({ from: String(id), to: targetId, type: 'reference' });
+        } else {
+          targetId = String(data.get('existing') || '');
+          if (!noteById(targetId)) {
+            error.textContent = '请选择一篇已有笔记。';
+            return;
+          }
+        }
+        relations.push({ from: source.id, to: targetId, type: 'flow' });
+        dialog.close();
+        action = null;
+        selectNote(source.id);
+      });
+      document.getElementById('cancel-action').addEventListener('click', () => dialog.close());
+      document.getElementById('search').addEventListener('input', renderBoard);
+      document.getElementById('reset').addEventListener('click', () => {
+        notes = structuredClone(initialNotes);
+        relations = structuredClone(initialRelations);
+        document.getElementById('search').value = '';
+        selectNote('e1');
+      });
+      window.addEventListener('resize', drawLinks);
+      selectNote(selectedId);
+    </script>
+  </body>
+</html>

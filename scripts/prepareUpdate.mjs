@@ -5,9 +5,18 @@ import process from 'node:process';
 import console from 'node:console';
 import path from 'node:path';
 
-export function createUpdateManifest({ version, signature, installerName, notes, date }) {
-  if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('Expected a stable release version.');
-  if (installerName !== `Obsidian Hub_${version}_x64-setup.exe`) {
+export function createUpdateManifest({
+  version,
+  signature,
+  installerName,
+  notes,
+  date,
+  preview = false,
+}) {
+  const versionPattern = preview ? /^2\.\d+\.\d+-preview\.\d+$/ : /^\d+\.\d+\.\d+$/;
+  if (!versionPattern.test(version)) throw new Error('Version does not match the release channel.');
+  const productName = preview ? 'Obsidian Hub 2 Preview' : 'Obsidian Hub';
+  if (installerName !== `${productName}_${version}_x64-setup.exe`) {
     throw new Error('Installer name does not match the release version.');
   }
   const encodedSignature = signature.trim();
@@ -43,7 +52,24 @@ async function prepare() {
   if (config.version !== packageConfig.version || config.version !== cargoVersion) {
     throw new Error('Hub versions must match before publishing.');
   }
-  const installerName = `Obsidian Hub_${config.version}_x64-setup.exe`;
+  const preview = /^2\.\d+\.\d+-preview\.\d+$/.test(config.version);
+  const productName = preview ? 'Obsidian Hub 2 Preview' : 'Obsidian Hub';
+  const identifier = preview ? 'io.github.obsidian-hub.v2preview' : 'io.github.obsidian-hub';
+  const endpoint = preview
+    ? 'https://github.com/LeeDaud/Obsidian-Hub/releases/download/v2-preview-channel/latest.json'
+    : 'https://github.com/LeeDaud/Obsidian-Hub/releases/latest/download/latest.json';
+  if (
+    config.productName !== productName ||
+    config.identifier !== identifier ||
+    config.plugins?.updater?.endpoints?.length !== 1 ||
+    config.plugins.updater.endpoints[0] !== endpoint ||
+    config.bundle?.createUpdaterArtifacts !== true
+  ) {
+    throw new Error(
+      'Application identity, updater artifacts or endpoint does not match the channel.',
+    );
+  }
+  const installerName = `${productName}_${config.version}_x64-setup.exe`;
   const directory = path.join(root, 'src-tauri/target', profile, 'bundle/nsis');
   const installer = path.join(directory, installerName);
   const installerStat = await stat(installer);
@@ -63,6 +89,7 @@ async function prepare() {
     installerName,
     notes,
     date: new Date(),
+    preview,
   });
   const output = path.join(directory, 'latest.json');
   await writeFile(output, `${JSON.stringify(manifest, null, 2)}\n`);
