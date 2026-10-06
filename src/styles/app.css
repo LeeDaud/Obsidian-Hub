@@ -2571,6 +2571,12 @@ button:disabled {
   flex-direction: column;
   gap: 12px;
 }
+.workspace-page:has(.workflow-board-view) {
+  scrollbar-width: none;
+}
+.workspace-page:has(.workflow-board-view)::-webkit-scrollbar {
+  display: none;
+}
 .workflow-board-legend {
   font-size: 12px;
   opacity: 0.7;
