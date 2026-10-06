@@ -3,7 +3,7 @@
 Obsidian Hub 是一个面向 Windows 11 的多仓库启动器，并通过配套的 Obsidian Hub Bridge
 插件提供跨仓库笔记浏览、链接和只读预览。
 
-> `master` 保留 Hub `0.4.0` 基线。本分支是 `2.1.0-preview.2` 本地开发版，Bridge `0.6.0`；使用独立预览更新通道。建议在重要仓库中先完成备份。
+> `master` 保留 Hub `0.4.0` 基线。本分支是 `2.1.0-preview.2` 预发布版，Bridge `0.6.0`；使用独立预览更新通道。建议在重要仓库中先完成备份。
 
 ## 2.0 本地预览
 
@@ -20,9 +20,9 @@ Obsidian Hub 是一个面向 Windows 11 的多仓库启动器，并通过配套�
 
 预览版使用独立的 Windows 应用标识和 AppData。首次启动只读复制正式版的仓库登记表，再迁移到预览版配置；不会修改正式版配置。此后两个版本的仓库登记不会自动同步。签名预览包通过独立通道发布，不进入正式 Latest。preview.0 需手动安装一次 preview.1，之后可通过 Hub 检查预览更新。Bridge 继续只读登记仓库；Hub 的文件写入仅由上述显式操作触发。先使用临时 Vault 验证流程，再连接真实知识库。
 
-本地签名 Debug 构建运行 `pnpm update:build -Debug`，安装包生成在 `src-tauri/target/debug/bundle/nsis/`；当前看板改动未公开发布。
+本地签名 Debug 构建运行 `pnpm update:build -Debug`，安装包生成在 `src-tauri/target/debug/bundle/nsis/`；四库看板已作为 `2.1.0-preview.2` 预发布，安装包见 [GitHub Release](https://github.com/LeeDaud/Obsidian-Hub/releases/tag/v2.1.0-preview.2)。
 
-## 四库流程看板（本地开发版）
+## 四库流程看板
 
 工作台默认显示全部任务，点击「流程看板」切换到 Echo、Main、Output、Knowledge 四列。笔记按最近修改时间排序，各列独立滚动；窄窗口显示为 2×2。
 
