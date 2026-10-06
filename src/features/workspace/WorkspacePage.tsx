@@ -458,7 +458,7 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
             }).format(new Date())}
           </span>
           <h1>
-            知识工作台<span className="workspace-version">2.1</span>
+            知识工作台<span className="workspace-version">2.0</span>
           </h1>
         </div>
         <div className="workspace-header-actions">

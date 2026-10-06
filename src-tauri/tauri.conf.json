@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Obsidian Hub 2 Preview",
-  "version": "2.1.0-preview.3",
-  "identifier": "io.github.obsidian-hub.v2preview",
+  "productName": "Obsidian Hub",
+  "version": "2.0.0",
+  "identifier": "io.github.obsidian-hub",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Obsidian Hub 2 Preview",
+        "title": "Obsidian Hub",
         "width": 1180,
         "height": 760,
         "minWidth": 720,
@@ -44,9 +44,7 @@
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY5RTY5MjkxMTdEMjM3QjUKUldTMU45SVhrWkxtK2ZkOTBXSXZ5S2p4SGFuOXB6SHpFc3paQ3hudm5zYUtwbWlXNTVuOGVNTEkK",
-      "endpoints": [
-        "https://github.com/LeeDaud/Obsidian-Hub/releases/download/v2-preview-channel/latest.json"
-      ],
+      "endpoints": ["https://github.com/LeeDaud/Obsidian-Hub/releases/latest/download/latest.json"],
       "windows": {
         "installMode": "passive"
       }

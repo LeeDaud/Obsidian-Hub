@@ -1,6 +1,6 @@
 [package]
 name = "obsidian-hub"
-version = "2.1.0-preview.3"
+version = "2.0.0"
 description = "A fast launcher for Obsidian vaults"
 authors = ["Obsidian Hub contributors"]
 edition = "2024"

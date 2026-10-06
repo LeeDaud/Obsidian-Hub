@@ -12,6 +12,25 @@ const input = {
   date: '2026-09-30T00:00:00Z',
 };
 describe('release manifest', () => {
+  it('publishes stable 2.0 with the formal installer and immutable asset URL', () => {
+    const manifest = createUpdateManifest({
+      ...input,
+      version: '2.0.0',
+      installerName: 'Obsidian Hub_2.0.0_x64-setup.exe',
+    });
+    assert.equal(manifest.version, '2.0.0');
+    assert.equal(
+      manifest.platforms['windows-x86_64'].url,
+      'https://github.com/LeeDaud/Obsidian-Hub/releases/download/v2.0.0/Obsidian.Hub_2.0.0_x64-setup.exe',
+    );
+    assert.throws(() =>
+      createUpdateManifest({
+        ...input,
+        version: '2.0.0',
+        installerName: 'Obsidian Hub 2 Preview_2.0.0_x64-setup.exe',
+      }),
+    );
+  });
   it('keeps preview packages on immutable version tags with a separate product name', () => {
     const manifest = createUpdateManifest({
       ...input,
