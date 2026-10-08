@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { open } from '@tauri-apps/plugin-dialog';
 import type {
@@ -19,6 +20,9 @@ import type {
   WorkflowEventQuery,
   WorkflowLinkStore,
   WorkflowLinkRequest,
+  WorkspaceChange,
+  WorkspaceChangeNotice,
+  WorkspaceScopeUpdate,
 } from '../domain/workspace';
 
 export interface VaultGateway {
@@ -36,6 +40,8 @@ export interface VaultGateway {
   closeWindow(): Promise<void>;
   scanWorkspace?(): Promise<WorkspaceSnapshot>;
   loadWorkspaceCache?(): Promise<WorkspaceSnapshot | null>;
+  watchWorkspace?(onChange: (notice: WorkspaceChangeNotice) => void): Promise<() => Promise<void>>;
+  refreshWorkspacePaths?(changes: WorkspaceChange[]): Promise<WorkspaceScopeUpdate[]>;
   createWorkspaceNote?(request: CreateWorkspaceNoteRequest): Promise<WorkspaceFileResult>;
   setWorkspaceTaskComplete?(
     vaultId: string,
@@ -55,8 +61,17 @@ export interface VaultGateway {
   setEchoReviewed?(noteId: string, reviewed: boolean): Promise<WorkspaceState>;
   loadWorkflowLinks?(): Promise<WorkflowLinkStore>;
   setWorkflowLink?(request: WorkflowLinkRequest): Promise<WorkflowLinkStore>;
+  setWorkflowLinks?(requests: WorkflowLinkRequest[]): Promise<WorkflowLinkStore>;
   loadWorkflowEvents?(): Promise<WorkflowEventQuery>;
   clearWorkflowEvents?(): Promise<WorkflowEventQuery>;
+}
+
+// Serialize native session ownership, including React's setup/cleanup cycles.
+let watchLifecycle: Promise<unknown> = Promise.resolve();
+function watchOperation<T>(operation: () => Promise<T>): Promise<T> {
+  const result = watchLifecycle.then(operation, operation);
+  watchLifecycle = result.catch(() => undefined);
+  return result;
 }
 
 export const tauriVaultGateway: VaultGateway = {
@@ -175,6 +190,47 @@ export const tauriVaultGateway: VaultGateway = {
       throw toAppError(reason);
     }
   },
+  async watchWorkspace(onChange) {
+    type Notice = WorkspaceChangeNotice & { sessionId: string };
+    let sessionId: string | null = null;
+    const pending: Notice[] = [];
+    let active = true;
+    const unlisten = await listen<Notice>('workspace-changed', ({ payload }) => {
+      if (!active) return;
+      if (sessionId === null) {
+        // Startup can emit before the command response reaches the webview.
+        if (pending.length < 32) pending.push(payload);
+        else pending[0] = { ...payload, changes: [], warningCodes: ['WORKSPACE_WATCH_OVERFLOW'] };
+      } else if (payload.sessionId === sessionId) onChange(payload);
+    });
+    try {
+      const session = await watchOperation(() =>
+        invoke<{ sessionId: string; warningCodes: string[] }>('start_workspace_watch'),
+      );
+      sessionId = session.sessionId;
+      onChange({ changes: [], warningCodes: session.warningCodes });
+      for (const notice of pending) {
+        if (notice.sessionId === sessionId) onChange(notice);
+      }
+      return async () => {
+        if (!active) return;
+        active = false;
+        unlisten();
+        await watchOperation(() => invoke('stop_workspace_watch', { sessionId }));
+      };
+    } catch (reason) {
+      active = false;
+      unlisten();
+      throw toAppError(reason);
+    }
+  },
+  async refreshWorkspacePaths(changes) {
+    try {
+      return await invoke<WorkspaceScopeUpdate[]>('refresh_workspace_paths', { changes });
+    } catch (reason) {
+      throw toAppError(reason);
+    }
+  },
   async createWorkspaceNote(request) {
     try {
       return await invoke<WorkspaceFileResult>('create_workspace_note', { request });
@@ -244,6 +300,13 @@ export const tauriVaultGateway: VaultGateway = {
   async setWorkflowLink(request) {
     try {
       return await invoke<WorkflowLinkStore>('set_workflow_link', { request });
+    } catch (reason) {
+      throw toAppError(reason);
+    }
+  },
+  async setWorkflowLinks(requests) {
+    try {
+      return await invoke<WorkflowLinkStore>('set_workflow_links', { requests });
     } catch (reason) {
       throw toAppError(reason);
     }

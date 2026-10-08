@@ -15,6 +15,7 @@ import { NotePreviewDialog } from './NotePreviewDialog';
 import { ActivityDialog } from './ActivityDialog';
 import { WorkflowBoard } from './WorkflowBoard';
 import { noteNameError } from './noteNaming';
+import { mergeWorkspaceUpdates, WorkspaceSync } from '../../services/workspaceSync';
 import type { CrossVaultLink } from '@obsidian-hub/cross-vault-parser';
 
 interface WorkspacePageProps {
@@ -81,14 +82,16 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
   } | null>(null);
   const [previewing, setPreviewing] = useState<WorkspaceNote | null>(null);
   const generation = useRef(0);
+  const sync = useRef<WorkspaceSync | null>(null);
+  const writeLocks = useRef(new Map<string, WorkspaceTask>());
+  const refreshAfterWrites = useRef(false);
+  const [watchWarnings, setWatchWarnings] = useState<string[]>([]);
   const listRef = useRef<HTMLUListElement>(null);
   const roleByVault = useMemo(
     () => new Map(config.vaults.map((v) => [v.id, v.role])),
     [config.vaults],
   );
-  const ready = ['echo', 'main', 'output'].every((role) =>
-    config.vaults.some((v) => v.role === role),
-  );
+  const ready = ['echo', 'output'].every((role) => config.vaults.some((v) => v.role === role));
 
   useEffect(() => {
     if (typeof ResizeObserver !== 'undefined' && listRef.current) {
@@ -106,9 +109,19 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
   }, [view]);
   const refresh = useCallback(async () => {
     if (!gateway.scanWorkspace) return;
+    if (writeLocks.current.size) {
+      refreshAfterWrites.current = true;
+      return;
+    }
+    sync.current?.pause();
     const id = ++generation.current;
     setBusy(true);
     setError(null);
+    setWatchWarnings((codes) =>
+      codes.filter(
+        (code) => code !== 'WORKSPACE_WATCH_OVERFLOW' && code !== 'WORKSPACE_REFRESH_FAILED',
+      ),
+    );
     try {
       const cached = await gateway.loadWorkspaceCache?.();
       if (cached && id === generation.current) setSnapshot(cached);
@@ -127,15 +140,58 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
     } catch (reason) {
       if (id === generation.current) setError(toAppError(reason).message);
     } finally {
-      if (id === generation.current) setBusy(false);
+      if (id === generation.current) {
+        setBusy(false);
+        sync.current?.resume();
+      }
     }
   }, [gateway]);
   useEffect(() => {
-    void refresh();
+    let active = true;
+    let stop: (() => Promise<void>) | undefined;
+    const coordinator = gateway.refreshWorkspacePaths
+      ? new WorkspaceSync(
+          (changes) => gateway.refreshWorkspacePaths!(changes),
+          (updates) => {
+            if (active)
+              setSnapshot((current) =>
+                current ? mergeWorkspaceUpdates(current, updates) : current,
+              );
+          },
+          (code) => {
+            if (active) setWatchWarnings((codes) => [...new Set([...codes, code])]);
+          },
+        )
+      : null;
+    sync.current = coordinator;
+    for (const task of writeLocks.current.values()) coordinator?.lock(task);
+    void (async () => {
+      setWatchWarnings([]);
+      try {
+        if (gateway.watchWorkspace && coordinator) {
+          stop = await gateway.watchWorkspace((notice) => {
+            if (!active) return;
+            if (notice.warningCodes.length)
+              setWatchWarnings((codes) => [...new Set([...codes, ...notice.warningCodes])]);
+            coordinator.enqueue(notice.changes);
+          });
+        }
+      } catch {
+        if (active) setWatchWarnings(['WORKSPACE_WATCH_FAILED']);
+      }
+      if (active) await refresh();
+      else if (stop) await stop();
+    })().catch(() => {
+      if (active) setWatchWarnings(['WORKSPACE_WATCH_FAILED']);
+    });
     return () => {
+      active = false;
+      coordinator?.dispose();
+      if (sync.current === coordinator) sync.current = null;
+      if (stop) void stop().catch(() => undefined);
       generation.current += 1;
     };
-  }, [config, refresh]);
+  }, [config, gateway, refresh]);
 
   function selectFilter(next: Filter) {
     setView('list');
@@ -226,8 +282,10 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
   }
   async function updateTask(task: WorkspaceTask) {
     if (!gateway.setWorkspaceTaskComplete) return;
-    const fileKey = `${task.vaultId}:${task.relativePath}`;
-    if (pendingTaskFiles.has(fileKey)) return;
+    const fileKey = `${task.vaultId}:${task.relativePath.toLocaleLowerCase()}`;
+    if (writeLocks.current.has(fileKey)) return;
+    writeLocks.current.set(fileKey, task);
+    sync.current?.lock(task);
     const nextComplete = !task.complete;
     setPendingTaskFiles((current) => new Set(current).add(fileKey));
     setError(null);
@@ -284,11 +342,17 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
       );
       setError(toAppError(reason).message);
     } finally {
+      writeLocks.current.delete(fileKey);
+      sync.current?.unlock(task);
       setPendingTaskFiles((current) => {
         const next = new Set(current);
         next.delete(fileKey);
         return next;
       });
+      if (refreshAfterWrites.current && !writeLocks.current.size) {
+        refreshAfterWrites.current = false;
+        void refresh();
+      }
     }
   }
   async function toggleReviewed(note: WorkspaceNote) {
@@ -410,7 +474,7 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
     );
   }
   function taskRow(task: WorkspaceTask) {
-    const fileKey = `${task.vaultId}:${task.relativePath}`;
+    const fileKey = `${task.vaultId}:${task.relativePath.toLocaleLowerCase()}`;
     const source = notes.find(
       (note) => note.vaultId === task.vaultId && note.relativePath === task.relativePath,
     );
@@ -458,7 +522,7 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
             }).format(new Date())}
           </span>
           <h1>
-            知识工作台<span className="workspace-version">2.0</span>
+            知识工作台<span className="workspace-version">2.1</span>
           </h1>
         </div>
         <div className="workspace-header-actions">
@@ -475,17 +539,33 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
           <button type="button" onClick={() => setShowSetup(true)}>
             工作流设置
           </button>
-          <button type="button" disabled={disabled} onClick={() => void refresh()}>
+          <button
+            type="button"
+            disabled={disabled || pendingTaskFiles.size > 0}
+            onClick={() => void refresh()}
+          >
             {busy ? '刷新中…' : '刷新'}
           </button>
         </div>
       </header>
       {!ready && (
         <div className="workspace-setup-hint">
-          <span>指定 Echo、Main 和 Output，开始直接创建笔记。Knowledge 可选，无需 Hub 仓库。</span>
+          <span>指定 Echo 和 Output 即可直接输出；Main 用于认知阶段，Knowledge 提供可选资料。</span>
           <button type="button" onClick={() => setShowSetup(true)}>
             配置工作流
           </button>
+        </div>
+      )}
+      {watchWarnings.length > 0 && (
+        <div className="workspace-message" role="status">
+          {watchWarnings.includes('WORKSPACE_WATCH_FAILED') ||
+          watchWarnings.includes('WORKSPACE_WATCH_PARTIAL')
+            ? '部分仓库自动更新不可用，请手动刷新。'
+            : watchWarnings.includes('WORKSPACE_WATCH_OVERFLOW')
+              ? '文件变化过多，部分变化可能遗漏，请手动刷新。'
+              : watchWarnings.includes('WORKSPACE_REFRESH_FAILED')
+                ? '部分文件暂时无法更新，已保留原显示内容，请手动刷新。'
+                : '网络仓库的自动更新可能不完整，请以手动刷新为准。'}
         </div>
       )}
       {(error || message) && (
@@ -757,6 +837,14 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
       {previewing && (
         <NotePreviewDialog
           note={previewing}
+          currentNote={
+            snapshot?.notes.find(
+              (note) =>
+                note.vaultId === previewing.vaultId &&
+                note.relativePath.toLocaleLowerCase() ===
+                  previewing.relativePath.toLocaleLowerCase(),
+            ) ?? null
+          }
           gateway={gateway}
           onClose={() => setPreviewing(null)}
           onOpen={() => void openNote(previewing)}
@@ -767,7 +855,11 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
                 <button
                   type="button"
                   disabled={disabled}
-                  onClick={() => void toggleReviewed(previewing)}
+                  onClick={() =>
+                    void toggleReviewed(
+                      snapshot?.notes.find((note) => note.id === previewing.id) ?? previewing,
+                    )
+                  }
                 >
                   {state?.reviewed.includes(previewing.id) ? '恢复待处理' : '标为已阅'}
                 </button>
@@ -776,12 +868,25 @@ export function WorkspacePage({ config, gateway, onConfigChange }: WorkspacePage
                   className="workspace-primary"
                   disabled={disabled}
                   onClick={() => {
-                    const source = previewing;
+                    const source =
+                      snapshot?.notes.find((note) => note.id === previewing.id) ?? previewing;
                     setPreviewing(null);
                     setCreating({ source, kind: 'cognition' });
                   }}
                 >
                   添加认知笔记
+                </button>
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => {
+                    const source =
+                      snapshot?.notes.find((note) => note.id === previewing.id) ?? previewing;
+                    setPreviewing(null);
+                    setCreating({ source, kind: 'output' });
+                  }}
+                >
+                  直接创建输出笔记
                 </button>
               </>
             ) : undefined

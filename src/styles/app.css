@@ -2948,3 +2948,57 @@ button:disabled {
     flex-basis: 100%;
   }
 }
+
+/* Branches and converging relationships remain readable without relying on SVG. */
+.workflow-connectors .is-automatic {
+  stroke-dasharray: 1 5;
+  opacity: 0.55;
+}
+.workflow-connectors .is-direct {
+  stroke-width: 2;
+}
+.workflow-relation-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+.workflow-relation-counts span {
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+}
+.workflow-relation-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.workflow-relation-groups section {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+.workflow-relation-groups h3 {
+  font-size: 12px;
+  margin: 0;
+}
+.workflow-batch-list {
+  max-height: 100px;
+  overflow: auto;
+  margin: 0;
+  padding-left: 16px;
+  font-size: 12px;
+}
+@media (max-width: 800px) {
+  .workflow-relation-groups {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.workflow-board.is-focused .workflow-column-notes {
+  height: auto;
+  min-height: 160px;
+  max-height: 440px;
+}

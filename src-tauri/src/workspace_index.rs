@@ -47,6 +47,8 @@ pub struct WorkspaceSnapshot {
     pub notes: Vec<IndexedNote>,
     #[serde(default)]
     pub relations: Vec<crate::workflow_links::Link>,
+    #[serde(default)]
+    pub link_candidates: Vec<crate::link_candidates::Candidates>,
     pub tasks: Vec<TaskItem>,
     pub vault_statuses: Vec<VaultScanStatus>,
     pub scanned_at: u64,
@@ -111,6 +113,7 @@ fn save_cache(
         snapshot: WorkspaceSnapshot {
             notes: snapshot.notes.clone(),
             relations: Vec::new(),
+            link_candidates: Vec::new(),
             tasks: Vec::new(),
             vault_statuses: snapshot.vault_statuses.clone(),
             scanned_at: snapshot.scanned_at,
@@ -136,7 +139,7 @@ fn save_cache(
     Ok(())
 }
 
-fn tasks_in_note(note: &IndexedNote, contents: &[u8]) -> Vec<TaskItem> {
+pub(crate) fn tasks_in_note(note: &IndexedNote, contents: &[u8]) -> Vec<TaskItem> {
     let Ok(text) = std::str::from_utf8(contents) else {
         return Vec::new();
     };
@@ -191,6 +194,7 @@ pub fn scan(app: &AppHandle) -> Result<WorkspaceSnapshot, AppError> {
     let notes = note_index::build(&config.vaults);
     let mut tasks = Vec::new();
     let mut relations = Vec::new();
+    let mut link_candidates = Vec::new();
     let mut read_errors: HashMap<String, usize> = HashMap::new();
     for note in &notes {
         let Some(vault) = config.vaults.iter().find(|vault| vault.id == note.vault_id) else {
@@ -215,6 +219,13 @@ pub fn scan(app: &AppHandle) -> Result<WorkspaceSnapshot, AppError> {
         match fs::read(target) {
             Ok(contents) if std::str::from_utf8(&contents).is_ok() => {
                 tasks.extend(tasks_in_note(note, &contents));
+                link_candidates.push(crate::link_candidates::extract(
+                    std::str::from_utf8(&contents).unwrap_or_default(),
+                    crate::workflow_links::NoteRef {
+                        vault_id: note.vault_id.clone(),
+                        relative_path: note.relative_path.clone(),
+                    },
+                ));
                 relations.extend(crate::workflow_links::parse(
                     std::str::from_utf8(&contents).unwrap_or_default(),
                     crate::workflow_links::NoteRef {
@@ -242,6 +253,7 @@ pub fn scan(app: &AppHandle) -> Result<WorkspaceSnapshot, AppError> {
     let snapshot = WorkspaceSnapshot {
         notes,
         relations,
+        link_candidates,
         tasks,
         vault_statuses,
         scanned_at: SystemTime::now()

@@ -138,6 +138,7 @@ fn validate(config: &AppConfig, request: &LinkRequest) -> Result<(), AppError> {
         link.kind.as_str(),
     ) {
         (Some(VaultRole::Echo), Some(VaultRole::Main), "origin")
+        | (Some(VaultRole::Echo), Some(VaultRole::Output), "origin")
         | (Some(VaultRole::Main), Some(VaultRole::Output), "origin")
         | (Some(VaultRole::Knowledge), Some(VaultRole::Output), "reference") => true,
         _ => false,
@@ -145,7 +146,7 @@ fn validate(config: &AppConfig, request: &LinkRequest) -> Result<(), AppError> {
     if !allowed {
         return Err(fail(
             "WORKFLOW_LINK_ROLE_INVALID",
-            "关联必须为 Echo→Main、Main→Output 或 Knowledge→Output。",
+            "关联必须为 Echo→Main/Output、Main→Output 或 Knowledge→Output。",
         ));
     }
     for (note, hash) in [
@@ -164,9 +165,16 @@ fn validate(config: &AppConfig, request: &LinkRequest) -> Result<(), AppError> {
     }
     Ok(())
 }
+fn same_link(left: &Link, right: &Link) -> bool {
+    left.kind == right.kind
+        && left.source.vault_id == right.source.vault_id
+        && left.target.vault_id == right.target.vault_id
+        && left.source.relative_path.to_lowercase() == right.source.relative_path.to_lowercase()
+        && left.target.relative_path.to_lowercase() == right.target.relative_path.to_lowercase()
+}
 fn update_path(path: &Path, request: &LinkRequest) -> Result<LinkStore, AppError> {
     let mut store = load_path(path)?;
-    store.links.retain(|l| l != &request.link);
+    store.links.retain(|l| !same_link(l, &request.link));
     if request.linked {
         if store.links.len() >= MAX_LINKS {
             return Err(fail("WORKFLOW_LINKS_LIMIT", "手动关联已达上限。"));
@@ -186,6 +194,45 @@ pub fn update(app: &AppHandle, request: LinkRequest) -> Result<LinkStore, AppErr
         return Err(fail("WORKFLOW_LINK_INVALID", "关联无效。"));
     }
     update_path(&path(app)?, &request)
+}
+pub fn update_many(app: &AppHandle, requests: Vec<LinkRequest>) -> Result<LinkStore, AppError> {
+    let _guard = LOCK
+        .lock()
+        .map_err(|_| fail("WORKFLOW_LINKS_BUSY", "关联存储忙，请重试。"))?;
+    update_many_with_config(&path(app)?, &config::load_config(app)?, &requests)
+}
+fn update_many_with_config(
+    path: &Path,
+    config: &AppConfig,
+    requests: &[LinkRequest],
+) -> Result<LinkStore, AppError> {
+    if requests.is_empty() || requests.len() > 50 {
+        return Err(fail("WORKFLOW_LINKS_LIMIT", "一次请选择 1 至 50 条关联。"));
+    }
+    for request in requests {
+        if !request.linked {
+            return Err(fail("WORKFLOW_LINK_INVALID", "批量操作仅用于新增关联。"));
+        }
+        validate(config, request)?;
+    }
+    let mut store = load_path(path)?;
+    for request in requests {
+        if !store
+            .links
+            .iter()
+            .any(|link| same_link(link, &request.link))
+        {
+            store.links.push(request.link.clone());
+        }
+    }
+    if store.links.len() > MAX_LINKS {
+        return Err(fail("WORKFLOW_LINKS_LIMIT", "手动关联已达上限。"));
+    }
+    for request in requests {
+        validate(config, request)?;
+    }
+    save_path(path, &store)?;
+    Ok(store)
 }
 // Only Hub's generated JSON frontmatter is recognized. Body links never imply a workflow edge.
 pub fn parse(contents: &str, target: NoteRef) -> Vec<Link> {
@@ -300,6 +347,57 @@ mod tests {
             });
         }
         config
+    }
+    #[test]
+    fn batch_is_atomic_and_supports_convergence_and_echo_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = fixture(dir.path());
+        fs::write(dir.path().join("echo/b.md"), "# private body").unwrap();
+        let path = dir.path().join("links.json");
+        let hash = workspace_actions::content_hash(b"# private body");
+        let make = |source: NoteRef, target: NoteRef, kind: &str| LinkRequest {
+            link: Link {
+                source,
+                target,
+                kind: kind.into(),
+            },
+            linked: true,
+            source_hash: hash.clone(),
+            target_hash: hash.clone(),
+        };
+        let mut requests = vec![
+            make(note("echo"), note("main"), "origin"),
+            make(
+                NoteRef {
+                    vault_id: "echo".into(),
+                    relative_path: "b.md".into(),
+                },
+                note("main"),
+                "origin",
+            ),
+            make(note("echo"), note("output"), "origin"),
+            make(note("knowledge"), note("output"), "reference"),
+        ];
+        let store = update_many_with_config(&path, &config, &requests).unwrap();
+        assert_eq!(store.schema_version, 1);
+        assert_eq!(store.links.len(), 4);
+        let before = fs::read(&path).unwrap();
+        requests[0].link.target.relative_path = "missing.md".into();
+        assert!(update_many_with_config(&path, &config, &requests).is_err());
+        assert_eq!(fs::read(&path).unwrap(), before);
+        requests[0].link.target.relative_path = "A.MD".into();
+        assert_eq!(
+            update_many_with_config(&path, &config, &requests)
+                .unwrap()
+                .links
+                .len(),
+            4
+        );
+        assert!(update_many_with_config(&path, &config, &[]).is_err());
+        assert_eq!(
+            fs::read_to_string(dir.path().join("echo/a.md")).unwrap(),
+            "# private body"
+        );
     }
     #[test]
     fn validates_roles_hashes_paths_and_preserves_notes() {

@@ -351,7 +351,17 @@ fn create_note_with_config(
 ) -> Result<FileResult, AppError> {
     let (source_role, target_role, kind_label) = match request.kind.as_str() {
         "cognition" => (VaultRole::Echo, VaultRole::Main, "灵感"),
-        "output" => (VaultRole::Main, VaultRole::Output, "认知"),
+        "output" => {
+            let role = config
+                .vaults
+                .iter()
+                .find(|v| v.id == request.source.vault_id)
+                .and_then(|v| v.role);
+            match role {
+                Some(VaultRole::Echo) => (VaultRole::Echo, VaultRole::Output, "灵感"),
+                _ => (VaultRole::Main, VaultRole::Output, "认知"),
+            }
+        }
         _ => return Err(AppError::new("WORKFLOW_STAGE_INVALID", "创建类型无效。")),
     };
     if request.references.len() > 50
@@ -656,6 +666,28 @@ mod tests {
         }
     }
 
+    #[test]
+    fn echo_creates_output_without_main_and_preserves_source() {
+        let root = tempdir().unwrap();
+        let mut config = fixture(root.path());
+        config
+            .vaults
+            .retain(|vault| vault.role != Some(VaultRole::Main));
+        let echo = source(root.path(), "echo", "idea.md");
+        let reference = source(root.path(), "knowledge", "ref.md");
+        let before = fs::read(root.path().join("echo/idea.md")).unwrap();
+        let mut req = request(echo);
+        req.kind = "output".into();
+        req.references = vec![reference];
+        let output = create_note_with_config(&config, &req).unwrap();
+        assert_eq!(output.vault_id, "output");
+        let text =
+            fs::read_to_string(root.path().join("output").join(output.relative_path)).unwrap();
+        assert!(text.contains("@echo:echo[[idea.md]]"));
+        assert!(text.contains("@knowledge:knowledge[[ref.md]]"));
+        assert!(!text.contains("Private original body"));
+        assert_eq!(fs::read(root.path().join("echo/idea.md")).unwrap(), before);
+    }
     #[test]
     fn direct_flow_preserves_sources_and_generates_links_without_hub() {
         let root = tempdir().unwrap();

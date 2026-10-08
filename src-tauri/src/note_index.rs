@@ -67,6 +67,43 @@ fn frontmatter_values(contents: &str, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+pub(crate) fn from_contents(
+    vault: &VaultEntry,
+    relative_path: String,
+    contents: &str,
+    metadata: Option<fs::Metadata>,
+) -> IndexedNote {
+    let file_name = relative_path
+        .rsplit('/')
+        .next()
+        .unwrap_or_default()
+        .to_owned();
+    let title = contents
+        .lines()
+        .find_map(|line| line.strip_prefix("# ").map(str::trim))
+        .filter(|title| !title.is_empty())
+        .unwrap_or_else(|| file_name.trim_end_matches(".md"))
+        .to_owned();
+    IndexedNote {
+        id: format!("{}:{}", vault.id, relative_path.to_lowercase()),
+        vault_id: vault.id.clone(),
+        vault_name: vault.name.clone(),
+        relative_path,
+        file_name,
+        title,
+        aliases: frontmatter_values(contents, "aliases"),
+        tags: frontmatter_values(contents, "tags"),
+        modified_at: metadata
+            .as_ref()
+            .and_then(|value| value.modified().ok())
+            .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
+            .map(|value| value.as_millis() as u64)
+            .unwrap_or_default(),
+        size: metadata.map(|value| value.len()).unwrap_or_default(),
+        content_hash: content_hash(contents.as_bytes()),
+    }
+}
+
 fn scan_directory(root: &Path, directory: &Path, vault: &VaultEntry, notes: &mut Vec<IndexedNote>) {
     let Ok(entries) = fs::read_dir(directory) else {
         return;
@@ -102,11 +139,6 @@ fn scan_directory(root: &Path, directory: &Path, vault: &VaultEntry, notes: &mut
                 continue;
             };
             let relative_path = relative.to_string_lossy().replace('\\', "/");
-            let file_name = path
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned();
             let metadata = entry.metadata().ok();
             let contents = if metadata
                 .as_ref()
@@ -116,30 +148,7 @@ fn scan_directory(root: &Path, directory: &Path, vault: &VaultEntry, notes: &mut
             } else {
                 String::new()
             };
-            let title = contents
-                .lines()
-                .find_map(|line| line.strip_prefix("# ").map(str::trim))
-                .filter(|title| !title.is_empty())
-                .unwrap_or_else(|| file_name.trim_end_matches(".md"))
-                .to_owned();
-            notes.push(IndexedNote {
-                id: format!("{}:{}", vault.id, relative_path.to_lowercase()),
-                vault_id: vault.id.clone(),
-                vault_name: vault.name.clone(),
-                relative_path,
-                file_name,
-                title,
-                aliases: frontmatter_values(&contents, "aliases"),
-                tags: frontmatter_values(&contents, "tags"),
-                modified_at: metadata
-                    .as_ref()
-                    .and_then(|value| value.modified().ok())
-                    .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
-                    .map(|value| value.as_millis() as u64)
-                    .unwrap_or_default(),
-                size: metadata.map(|value| value.len()).unwrap_or_default(),
-                content_hash: content_hash(contents.as_bytes()),
-            });
+            notes.push(from_contents(vault, relative_path, &contents, metadata));
         }
     }
 }

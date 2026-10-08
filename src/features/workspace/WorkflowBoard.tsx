@@ -9,7 +9,14 @@ import type {
 } from '../../domain/workspace';
 import type { VaultGateway } from '../../services/vaultGateway';
 import { toAppError } from '../../domain/appError';
-import { allowedLink, confirmedLinks, focusedLinks, linkKey, noteKey } from './workflowRelations';
+import {
+  allowedLink,
+  automaticLinks,
+  confirmedLinks,
+  focusedLinks,
+  linkKey,
+  noteKey,
+} from './workflowRelations';
 
 const stages = [
   { role: 'echo', name: 'Echo', label: '灵感' },
@@ -17,7 +24,14 @@ const stages = [
   { role: 'output', name: 'Output', label: '输出' },
   { role: 'knowledge', name: 'Knowledge', label: '资料' },
 ] as const;
-type Line = { key: string; path: string; reference: boolean; pending: boolean };
+type Line = {
+  key: string;
+  path: string;
+  reference: boolean;
+  pending: boolean;
+  automatic: boolean;
+  direct: boolean;
+};
 function ref(note: WorkspaceNote) {
   return { vaultId: note.vaultId, relativePath: note.relativePath };
 }
@@ -84,7 +98,13 @@ export function WorkflowBoard({
   const [message, setMessage] = useState<string | null>(null);
   const [loadingLinks, setLoadingLinks] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [pending, setPending] = useState<WorkflowLinkRequest | null>(null);
+  const [pendingRequests, setPendingRequests] = useState<WorkflowLinkRequest[]>([]);
+  const pending = pendingRequests[0] ?? null;
+  const setPending = (value: WorkflowLinkRequest | null) =>
+    setPendingRequests(value ? [value] : []);
+  const [associationMode, setAssociationMode] = useState(false);
+  const [relatedOnly, setRelatedOnly] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [columnQueries, setColumnQueries] = useState<Record<string, string>>({});
   const [lines, setLines] = useState<Line[]>([]);
   const boardRef = useRef<HTMLDivElement>(null);
@@ -102,42 +122,53 @@ export function WorkflowBoard({
   const byKey = useMemo(() => new Map(notes.map((n) => [noteKey(n), n])), [notes]);
   const selected = selectedKey ? byKey.get(selectedKey) : undefined;
   const role = selected ? roles.get(selected.vaultId) : null;
+  const automatic = useMemo(() => automaticLinks(snapshot, config), [snapshot, config]);
+  const automaticKeys = useMemo(() => new Set(automatic.links.map(linkKey)), [automatic.links]);
   const links = useMemo(
-    () => confirmedLinks([...(snapshot?.relations ?? []), ...store.links], roles),
-    [snapshot, store, roles],
+    () =>
+      confirmedLinks([...(snapshot?.relations ?? []), ...store.links, ...automatic.links], roles),
+    [snapshot, store, roles, automatic.links],
   );
-  const linkedKeys = useMemo(() => new Set(links.map(linkKey)), [links]);
-  const focused = useMemo(() => (selected ? focusedLinks(selected, links) : []), [selected, links]);
+  const linkedKeys = useMemo(
+    () =>
+      new Set(confirmedLinks([...(snapshot?.relations ?? []), ...store.links], roles).map(linkKey)),
+    [snapshot?.relations, store.links, roles],
+  );
+  const focused = useMemo(
+    () => (selected ? focusedLinks(selected, links, expanded) : []),
+    [selected, links, expanded],
+  );
   const related = new Set(focused.flatMap((l) => [noteKey(l.source), noteKey(l.target)]));
   const pendingSource = pending ? byKey.get(noteKey(pending.link.source)) : undefined;
   const pendingTarget = pending ? byKey.get(noteKey(pending.link.target)) : undefined;
-  const pendingIssue = !pending
-    ? null
-    : !selected || !pendingSource || !pendingTarget
-      ? '关联笔记已移走或未被读取，请刷新后重新选择。'
-      : !allowedLink(pending.link, roles)
-        ? '仓库角色已变化，请重新选择关联对象。'
-        : linkedKeys.has(linkKey(pending.link))
-          ? '这两篇笔记已经关联。'
-          : pendingSource.contentHash !== pending.sourceHash ||
-              pendingTarget.contentHash !== pending.targetHash
-            ? '笔记已变化，请重新选择关联对象。'
-            : null;
+  const pendingIssue =
+    pendingRequests
+      .map((request) => {
+        const source = byKey.get(noteKey(request.link.source)),
+          target = byKey.get(noteKey(request.link.target));
+        if (!selected || !source || !target) return '关联笔记已移走或未被读取，请刷新后重新选择。';
+        if (!allowedLink(request.link, roles)) return '仓库角色已变化，请重新选择关联对象。';
+        if (linkedKeys.has(linkKey(request.link))) return '这两篇笔记已经关联。';
+        if (source.contentHash !== request.sourceHash || target.contentHash !== request.targetHash)
+          return '笔记已变化，请重新选择关联对象。';
+        return null;
+      })
+      .find(Boolean) ?? null;
   const blocked =
     busy ||
     saving ||
     loadingLinks ||
     !!loadError ||
-    !gateway.setWorkflowLink ||
+    (!gateway.setWorkflowLink && !gateway.setWorkflowLinks) ||
     !!snapshot?.fromCache;
   const drawnLinks = useMemo(
     () => [
       ...focused.map((link) => ({ link, pending: false })),
-      ...(pending && !linkedKeys.has(linkKey(pending.link))
-        ? [{ link: pending.link, pending: true }]
-        : []),
+      ...pendingRequests
+        .filter((request) => !linkedKeys.has(linkKey(request.link)))
+        .map((request) => ({ link: request.link, pending: true })),
     ],
-    [focused, pending, linkedKeys],
+    [focused, pendingRequests, linkedKeys],
   );
 
   useEffect(() => {
@@ -227,12 +258,25 @@ export function WorkflowBoard({
             const y1 = a.top + a.height / 2 - root.top,
               y2 = b.top + b.height / 2 - root.top,
               mid = (x1 + x2) / 2;
+            const direct =
+              roles.get(link.source.vaultId) === 'echo' &&
+              roles.get(link.target.vaultId) === 'output';
+            const gutter = root.height - 5;
             return [
               {
                 key: (draft ? 'pending:' : '') + linkKey(link),
-                path: `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`,
+                path: direct
+                  ? `M ${x1} ${y1} C ${x1 + 14} ${y1}, ${x1 + 14} ${gutter}, ${x1 + 14} ${gutter} L ${x2 - 14} ${gutter} C ${x2 - 14} ${gutter}, ${x2 - 14} ${y2}, ${x2} ${y2}`
+                  : `M ${x1} ${y1} C ${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`,
                 reference: link.kind === 'reference',
                 pending: draft,
+                automatic:
+                  automaticKeys.has(linkKey(link)) &&
+                  !(snapshot?.relations ?? []).some((item) => linkKey(item) === linkKey(link)) &&
+                  !store.links.some((item) => linkKey(item) === linkKey(link)),
+                direct:
+                  roles.get(link.source.vaultId) === 'echo' &&
+                  roles.get(link.target.vaultId) === 'output',
               },
             ];
           }),
@@ -253,12 +297,25 @@ export function WorkflowBoard({
       board.removeEventListener('scroll', draw, true);
       window.removeEventListener('resize', draw);
     };
-  }, [drawnLinks, query, columnQueries, notes, selectedKey]);
+  }, [
+    drawnLinks,
+    query,
+    columnQueries,
+    notes,
+    selectedKey,
+    automaticKeys,
+    snapshot?.relations,
+    store.links,
+    roles,
+  ]);
 
   useEffect(() => {
     const pinned = [
       selectedKey,
-      ...(pending ? [noteKey(pending.link.source), noteKey(pending.link.target)] : []),
+      ...pendingRequests.flatMap((request) => [
+        noteKey(request.link.source),
+        noteKey(request.link.target),
+      ]),
     ];
     for (const key of new Set(pinned)) {
       if (!key) continue;
@@ -270,11 +327,22 @@ export function WorkflowBoard({
       if (bounds.top < view.top) viewport.scrollTop += bounds.top - view.top - 10;
       else if (bounds.bottom > view.bottom) viewport.scrollTop += bounds.bottom - view.bottom + 10;
     }
-  }, [selectedKey, pending, query, columnQueries]);
+  }, [selectedKey, pendingRequests, query, columnQueries, relatedOnly]);
+
+  useEffect(() => {
+    if (relatedOnly && !associationMode) {
+      boardRef.current
+        ?.querySelectorAll<HTMLElement>('.workflow-column-notes')
+        .forEach((column) => {
+          column.scrollTop = 0;
+        });
+    }
+  }, [selectedKey, relatedOnly, associationMode]);
 
   function selectNote(note: WorkspaceNote) {
     if (saveLock.current) return;
     setSelectedKey(noteKey(note));
+    setAssociationMode(false);
     setPending(null);
     setSaveError(null);
     setMessage(null);
@@ -291,11 +359,22 @@ export function WorkflowBoard({
       target = byKey.get(noteKey(link.target));
     if (!source || !target) return;
     candidateButton.current = button;
-    setPending({
+    const next: WorkflowLinkRequest = {
       link,
       linked: true,
       sourceHash: source.contentHash,
       targetHash: target.contentHash,
+    };
+    setPendingRequests((requests) => {
+      const previous = requests.find((request) => linkKey(request.link) === linkKey(link));
+      if (previous) {
+        if (previous.sourceHash !== next.sourceHash || previous.targetHash !== next.targetHash)
+          return requests.map((request) =>
+            linkKey(request.link) === linkKey(link) ? next : request,
+          );
+        return requests.filter((request) => linkKey(request.link) !== linkKey(link));
+      }
+      return requests.length < 50 ? [...requests, next] : requests;
     });
     setSaveError(null);
     setMessage(null);
@@ -328,8 +407,73 @@ export function WorkflowBoard({
       setSaving(false);
     }
   }
+  async function saveBatch() {
+    if (!pendingRequests.length || pendingIssue || blocked || saveLock.current) return;
+    if (pendingRequests.length === 1 && !gateway.setWorkflowLinks) {
+      await save(pendingRequests[0]);
+      return;
+    }
+    if (!gateway.setWorkflowLinks) {
+      setSaveError('当前环境不支持批量关联，请一次选择一条。');
+      return;
+    }
+    linkGeneration.current += 1;
+    saveLock.current = true;
+    setSaving(true);
+    setSaveError(null);
+    setMessage(null);
+    try {
+      setStore(await gateway.setWorkflowLinks(pendingRequests));
+      setPending(null);
+      setAssociationMode(false);
+      setMessage('关联已保存。');
+    } catch (reason) {
+      setSaveError(toAppError(reason).message);
+    } finally {
+      saveLock.current = false;
+      setSaving(false);
+    }
+  }
   const downstreamRole = role === 'echo' ? 'main' : role === 'main' ? 'output' : null;
   const downstream = selected ? links.filter((l) => noteKey(l.source) === noteKey(selected)) : [];
+  const groups = selected
+    ? [
+        {
+          label: '来源',
+          items: focused.filter(
+            (link) =>
+              linkedKeys.has(linkKey(link)) &&
+              link.kind === 'origin' &&
+              noteKey(link.target) === noteKey(selected),
+          ),
+        },
+        {
+          label: '下游',
+          items: focused.filter(
+            (link) => linkedKeys.has(linkKey(link)) && noteKey(link.source) === noteKey(selected),
+          ),
+        },
+        {
+          label: '参考资料',
+          items: focused.filter(
+            (link) =>
+              linkedKeys.has(linkKey(link)) &&
+              link.kind === 'reference' &&
+              noteKey(link.target) === noteKey(selected),
+          ),
+        },
+        { label: '笔记链接', items: focused.filter((link) => !linkedKeys.has(linkKey(link))) },
+        {
+          label: '上下游链',
+          items: focused.filter(
+            (link) =>
+              linkedKeys.has(linkKey(link)) &&
+              noteKey(link.source) !== noteKey(selected) &&
+              noteKey(link.target) !== noteKey(selected),
+          ),
+        },
+      ]
+    : [];
   function endpoint(note: WorkspaceNote | undefined, label: string) {
     return (
       <div className="workflow-pending-endpoint">
@@ -345,22 +489,24 @@ export function WorkflowBoard({
     );
   }
   function cardVisible(note: WorkspaceNote) {
+    const key = noteKey(note);
     const pinned =
-      noteKey(note) === selectedKey ||
-      (pending &&
-        [pending.link.source, pending.link.target].some((r) => noteKey(r) === noteKey(note)));
+      key === selectedKey ||
+      pendingRequests.some((request) =>
+        [request.link.source, request.link.target].some((ref) => noteKey(ref) === key),
+      );
+    if (pinned) return true;
+    if (relatedOnly && selected && !associationMode) return related.has(key);
     return (
-      pinned ||
-      (matchNote(note, query) &&
-        matchNote(note, columnQueries[roles.get(note.vaultId) ?? ''] ?? ''))
+      matchNote(note, query) && matchNote(note, columnQueries[roles.get(note.vaultId) ?? ''] ?? '')
     );
   }
   return (
     <section className="workflow-board-view" aria-label="四库流程看板">
       <div className="workflow-board-legend">
-        Echo → Main → Output · Knowledge 为输出提供资料
+        Echo → Main → Output · Echo 可直达 Output · Knowledge 为输出提供资料
         <br />
-        选中笔记后，在其他列的卡片上选择关联对象。实线为来源，虚线为资料。
+        浏览时查看关系；进入关联模式后可多选。实线为来源，虚线为资料，点线为正文链接。
       </div>
       <div
         className="workflow-association-toolbar"
@@ -379,6 +525,34 @@ export function WorkflowBoard({
                 </span>
               </div>
               <div className="workflow-inspector-actions">
+                <button
+                  type="button"
+                  aria-pressed={associationMode}
+                  disabled={busy || saving}
+                  onClick={() => {
+                    setAssociationMode((value) => !value);
+                    setPending(null);
+                    setSaveError(null);
+                  }}
+                >
+                  {associationMode ? '退出关联' : '关联笔记'}
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={relatedOnly}
+                  disabled={saving}
+                  onClick={() => setRelatedOnly((value) => !value)}
+                >
+                  只看相关笔记
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={expanded}
+                  disabled={saving}
+                  onClick={() => setExpanded((value) => !value)}
+                >
+                  展开上下游
+                </button>
                 <button type="button" disabled={saving} onClick={() => onPreview(selected)}>
                   预览笔记
                 </button>
@@ -392,6 +566,15 @@ export function WorkflowBoard({
                     onClick={() => (role === 'echo' ? onPreview(selected) : onCreate(selected))}
                   >
                     {role === 'echo' ? '预览后创建认知' : '创建输出笔记'}
+                  </button>
+                )}
+                {role === 'echo' && (
+                  <button
+                    type="button"
+                    disabled={busy || saving}
+                    onClick={() => onPreview(selected)}
+                  >
+                    预览后直接输出
                   </button>
                 )}
               </div>
@@ -412,13 +595,21 @@ export function WorkflowBoard({
               {endpoint(pendingTarget, pending.link.kind === 'reference' ? '输出' : '下游')}
             </div>
             <div className="workflow-pending-actions">
-              <span>待确认 · {pending.link.kind === 'reference' ? '资料引用' : '流程来源'}</span>
+              <span>已选 {pendingRequests.length}/50 条 · 统一确认</span>
+              <ul className="workflow-batch-list">
+                {pendingRequests.slice(1).map((request) => (
+                  <li key={linkKey(request.link)}>
+                    {byKey.get(noteKey(request.link.source))?.title} →{' '}
+                    {byKey.get(noteKey(request.link.target))?.title}
+                  </li>
+                ))}
+              </ul>
               <button
                 ref={confirmRef}
                 type="button"
                 className="workspace-primary"
                 disabled={blocked || !!pendingIssue}
-                onClick={() => void save(pending)}
+                onClick={() => void saveBatch()}
               >
                 {saving ? '保存中…' : '确认关联'}
               </button>
@@ -430,7 +621,9 @@ export function WorkflowBoard({
         ) : (
           selected && (
             <p className="workflow-association-hint">
-              在标有「可关联」的列中选择卡片；选择对象后才显示确认操作，同名笔记不会自动关联。
+              {associationMode
+                ? '在可关联列中选择多篇笔记，统一确认；再次点击可取消选择。'
+                : '当前为浏览模式，来源、下游和资料均可查看；需要补充关系时点击关联笔记。'}
             </p>
           )
         )}
@@ -455,7 +648,10 @@ export function WorkflowBoard({
           </p>
         )}
       </div>
-      <div className="workflow-board" ref={boardRef}>
+      <div
+        className={`workflow-board${relatedOnly && selected && !associationMode ? ' is-focused' : ''}`}
+        ref={boardRef}
+      >
         {stages.map((stage) => {
           const vault = config.vaults.find((v) => v.role === stage.role),
             status = snapshot?.vaultStatuses.find((v) => v.vaultId === vault?.id);
@@ -463,6 +659,7 @@ export function WorkflowBoard({
           const items = stageNotes.filter(cardVisible);
           // Show a search affordance even for an empty but eligible registered vault.
           const stageEligible =
+            associationMode &&
             !!selected &&
             !!vault &&
             !!relationFor(
@@ -479,7 +676,10 @@ export function WorkflowBoard({
             >
               <header>
                 <h2>
-                  {stage.name} <small>{stage.label}</small>
+                  {vault?.name ?? stage.name}{' '}
+                  <small>
+                    {stage.name} · {stage.label}
+                  </small>
                   {stageEligible && <span className="workflow-column-badge">可关联</span>}
                 </h2>
                 <span>
@@ -511,11 +711,11 @@ export function WorkflowBoard({
                 {items.map((note) => {
                   const link = selected ? relationFor(selected, note, roles) : null;
                   const already = !!link && linkedKeys.has(linkKey(link));
-                  const draft =
-                    !!pending &&
-                    [pending.link.source, pending.link.target].some(
+                  const draft = pendingRequests.some((request) =>
+                    [request.link.source, request.link.target].some(
                       (r) => noteKey(r) === noteKey(note),
-                    );
+                    ),
+                  );
                   const anchor = selectedKey === noteKey(note);
                   return (
                     <div
@@ -546,7 +746,10 @@ export function WorkflowBoard({
                         </small>
                       </button>
                       {anchor && <small className="workflow-card-state">当前笔记</small>}
-                      {link && (
+                      {link && automaticKeys.has(linkKey(link)) && (
+                        <small className="workflow-card-state">正文已有链接</small>
+                      )}
+                      {link && associationMode && (
                         <div className="workflow-card-actions">
                           {already ? (
                             <span className="workflow-card-state">已关联</span>
@@ -558,7 +761,7 @@ export function WorkflowBoard({
                               aria-pressed={draft}
                               onClick={(e) => choose(link, e.currentTarget)}
                             >
-                              {draft ? '已选择 · 可重新选择' : actionLabel(role, stage.role)}
+                              {draft ? '已选择 · 再点取消' : actionLabel(role, stage.role)}
                             </button>
                           )}
                         </div>
@@ -589,72 +792,128 @@ export function WorkflowBoard({
             <path
               key={line.key}
               d={line.path}
-              className={`${line.reference ? 'is-reference ' : ''}${line.pending ? 'is-pending' : ''}`}
+              className={`${line.reference ? 'is-reference ' : ''}${line.pending ? 'is-pending ' : ''}${line.automatic ? 'is-automatic ' : ''}${line.direct ? 'is-direct' : ''}`}
             />
           ))}
         </svg>
       </div>
       <aside className="workflow-inspector" aria-label="笔记关系">
-        <h2>已确认关系</h2>
+        <h2>笔记关系</h2>
+        {selected && (
+          <div className="workflow-relation-counts">
+            {groups
+              .filter((group) => group.label !== '上下游链')
+              .map((group) => (
+                <span key={group.label}>
+                  {group.label} {group.items.length}
+                </span>
+              ))}
+          </div>
+        )}
+        {selected &&
+          automatic.issues
+            .filter(
+              (issue) =>
+                related.has(noteKey(issue.owner)) || noteKey(issue.owner) === noteKey(selected),
+            )
+            .map((issue, index) => (
+              <p className="workspace-alert" key={index}>
+                {issue.message}
+              </p>
+            ))}
         {selected ? (
           <>
             {!focused.length && (
               <p className="workspace-subtle">尚无已确认关联；相同标题不代表同一条流程。</p>
             )}
-            <ul className="workflow-relations">
-              {focused.map((link) => {
-                const source = byKey.get(noteKey(link.source)),
-                  target = byKey.get(noteKey(link.target));
-                const isManual = store.links.some((l) => linkKey(l) === linkKey(link));
-                const isMetadata = (snapshot?.relations ?? []).some(
-                  (l) => linkKey(l) === linkKey(link),
-                );
-                const display = (r: WorkflowLink['source'], note: WorkspaceNote | undefined) =>
-                  note ? (
-                    <button
-                      type="button"
-                      disabled={saving}
-                      onClick={() => (cardVisible(note) ? locate(note) : onPreview(note))}
-                    >
-                      {note.title} · {cardVisible(note) ? '定位' : '预览（筛选外）'}
-                    </button>
-                  ) : (
-                    <span>
-                      {config.vaults.find((v) => v.id === r.vaultId)?.name ?? '未登记仓库'} /{' '}
-                      {r.relativePath}（
-                      {snapshot?.vaultStatuses.find((v) => v.vaultId === r.vaultId)?.online ===
-                      false
-                        ? '仓库离线'
-                        : '断链或未索引'}
-                      ）
-                    </span>
-                  );
-                return (
-                  <li key={linkKey(link)}>
-                    {display(link.source, source)}
-                    <span>{link.kind === 'origin' ? ' → 来源 → ' : ' ⇢ 资料 ⇢ '}</span>
-                    {display(link.target, target)}
-                    <small>{isMetadata ? '笔记来源字段' : 'Hub 手动关联'}</small>
-                    {isManual && (
-                      <button
-                        type="button"
-                        disabled={blocked || !!pending}
-                        onClick={() =>
-                          void save({
-                            link,
-                            linked: false,
-                            sourceHash: source?.contentHash ?? '',
-                            targetHash: target?.contentHash ?? '',
-                          })
-                        }
-                      >
-                        {isMetadata ? '解除手动副本' : '解除手动关联'}
-                      </button>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
+            <div className="workflow-relation-groups">
+              {groups
+                .filter((group) => group.items.length)
+                .map((group) => (
+                  <section key={group.label} aria-label={group.label + '关系'}>
+                    <h3>
+                      {group.label} · {group.items.length}
+                    </h3>
+                    <ul className="workflow-relations">
+                      {group.items.map((link) => {
+                        const source = byKey.get(noteKey(link.source)),
+                          target = byKey.get(noteKey(link.target));
+                        const isManual = store.links.some((l) => linkKey(l) === linkKey(link));
+                        const isMetadata = (snapshot?.relations ?? []).some(
+                          (l) => linkKey(l) === linkKey(link),
+                        );
+                        const display = (
+                          r: WorkflowLink['source'],
+                          note: WorkspaceNote | undefined,
+                        ) =>
+                          note ? (
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onClick={() => (cardVisible(note) ? locate(note) : onPreview(note))}
+                            >
+                              {note.title} · {cardVisible(note) ? '定位' : '预览（筛选外）'}
+                            </button>
+                          ) : (
+                            <span>
+                              {config.vaults.find((v) => v.id === r.vaultId)?.name ?? '未登记仓库'}{' '}
+                              / {r.relativePath}（
+                              {snapshot?.vaultStatuses.find((v) => v.vaultId === r.vaultId)
+                                ?.online === false
+                                ? '仓库离线'
+                                : '断链或未索引'}
+                              ）
+                            </span>
+                          );
+                        return (
+                          <li key={linkKey(link)}>
+                            {display(link.source, source)}
+                            <span>
+                              {automaticKeys.has(linkKey(link)) && !isMetadata && !isManual
+                                ? ' ⇢ 笔记链接 ⇢ '
+                                : link.kind === 'origin'
+                                  ? ' → 来源 → '
+                                  : ' ⇢ 资料 ⇢ '}
+                            </span>
+                            {display(link.target, target)}
+                            {roles.get(link.source.vaultId) === 'echo' &&
+                              roles.get(link.target.vaultId) === 'output' && (
+                                <small>直达输出</small>
+                              )}
+                            <small>
+                              {[
+                                isMetadata ? '笔记来源字段' : '',
+                                isManual ? 'Hub 手动关联' : '',
+                                automaticKeys.has(linkKey(link)) ? '正文跨库链接' : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </small>
+                            {isManual && (
+                              <button
+                                type="button"
+                                disabled={blocked || !!pending}
+                                onClick={() =>
+                                  void save({
+                                    link,
+                                    linked: false,
+                                    sourceHash: source?.contentHash ?? '',
+                                    targetHash: target?.contentHash ?? '',
+                                  })
+                                }
+                              >
+                                {isMetadata || automaticKeys.has(linkKey(link))
+                                  ? '解除手动副本'
+                                  : '解除手动关联'}
+                              </button>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </section>
+                ))}
+            </div>
           </>
         ) : (
           <p className="workspace-subtle">选中任一笔记，查看来源、下游和参考资料。</p>

@@ -44,12 +44,40 @@ export interface WorkflowLinkRequest {
 }
 
 export interface WorkspaceSnapshot {
+  linkCandidates?: WorkspaceLinkCandidates[];
   relations?: WorkflowLink[];
   notes: WorkspaceNote[];
   tasks: WorkspaceTask[];
   vaultStatuses: Array<{ vaultId: string; online: boolean; readErrors: number }>;
   scannedAt: number;
   fromCache: boolean;
+}
+
+export interface WorkspaceLinkCandidates {
+  owner: WorkflowNoteRef;
+  raw: string[];
+  truncated: boolean;
+}
+
+export interface WorkspaceChange {
+  vaultId: string;
+  /** Empty means the registered root; otherwise a file or directory scope. */
+  relativePath: string;
+}
+
+export interface WorkspaceChangeNotice {
+  changes: WorkspaceChange[];
+  warningCodes: string[];
+}
+
+export interface WorkspaceScopeUpdate {
+  linkCandidates?: WorkspaceLinkCandidates[];
+  scope: WorkspaceChange;
+  notes: WorkspaceNote[];
+  tasks: WorkspaceTask[];
+  relations: WorkflowLink[];
+  failedPaths: string[];
+  status: WorkspaceSnapshot['vaultStatuses'][number];
 }
 
 export interface WorkspaceState {

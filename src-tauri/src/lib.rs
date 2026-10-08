@@ -2,6 +2,7 @@ mod bridge;
 mod config;
 mod error;
 mod launcher;
+mod link_candidates;
 mod note_index;
 mod overview;
 mod vault;
@@ -10,9 +11,41 @@ mod workflow_links;
 mod workspace_actions;
 mod workspace_index;
 mod workspace_state;
+mod workspace_watch;
 
 use launcher::LaunchTarget;
 use tauri::Manager;
+
+#[tauri::command]
+async fn start_workspace_watch(
+    app: tauri::AppHandle,
+) -> Result<workspace_watch::WatchSession, error::AppError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace_watch::start(app.clone(), &app.state::<workspace_watch::WatchState>())
+    })
+    .await
+    .map_err(|_| error::AppError::new("WORKSPACE_WATCH_FAILED", "文件监听启动中断。"))?
+}
+
+#[tauri::command]
+async fn stop_workspace_watch(app: tauri::AppHandle, session_id: String) {
+    let _ = tauri::async_runtime::spawn_blocking(move || {
+        workspace_watch::stop(&app.state::<workspace_watch::WatchState>(), &session_id)
+    })
+    .await;
+}
+
+#[tauri::command]
+async fn refresh_workspace_paths(
+    app: tauri::AppHandle,
+    changes: Vec<workspace_watch::Change>,
+) -> Result<Vec<workspace_watch::ScopeUpdate>, error::AppError> {
+    tauri::async_runtime::spawn_blocking(move || workspace_watch::refresh(&app, changes))
+        .await
+        .map_err(|_| {
+            error::AppError::new("WORKSPACE_REFRESH_FAILED", "局部刷新意外中断，请手动刷新。")
+        })?
+}
 
 #[tauri::command]
 fn load_config(app: tauri::AppHandle) -> Result<config::AppConfig, error::AppError> {
@@ -28,6 +61,7 @@ async fn save_config(
     let registry_changed = registration_changed(&previous.vaults, &config.vaults);
     let saved = config::save_config(&app, config)?;
     if registry_changed {
+        workspace_watch::shutdown(&app.state::<workspace_watch::WatchState>());
         if let Some(state) = app.try_state::<bridge::BridgeState>() {
             bridge::rebuild(&state, &saved.vaults).await;
         }
@@ -363,9 +397,18 @@ fn set_workflow_link(
     workflow_links::update(&app, request)
 }
 
+#[tauri::command]
+fn set_workflow_links(
+    app: tauri::AppHandle,
+    requests: Vec<workflow_links::LinkRequest>,
+) -> Result<workflow_links::LinkStore, error::AppError> {
+    workflow_links::update_many(&app, requests)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(workspace_watch::WatchState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -387,6 +430,9 @@ pub fn run() {
             install_bridge_plugin,
             get_bridge_status,
             scan_workspace,
+            start_workspace_watch,
+            stop_workspace_watch,
+            refresh_workspace_paths,
             load_workspace_cache,
             create_workspace_note,
             set_workspace_task_complete,
@@ -398,8 +444,14 @@ pub fn run() {
             load_workflow_events,
             clear_workflow_events,
             load_workflow_links,
-            set_workflow_link
+            set_workflow_link,
+            set_workflow_links
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Obsidian Hub");
+        .build(tauri::generate_context!())
+        .expect("error while building Obsidian Hub")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                workspace_watch::shutdown(&app.state::<workspace_watch::WatchState>());
+            }
+        });
 }

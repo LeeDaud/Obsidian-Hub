@@ -98,6 +98,7 @@ async function select(role: string) {
       screen.getByRole('region', { name: `${role[0].toUpperCase() + role.slice(1)} 看板` }),
     ).getByRole('button', { name: /^选择 / }),
   );
+  await userEvent.click(screen.getByRole('button', { name: '关联笔记' }));
 }
 describe('four vault workflow board', () => {
   it('shows all columns in order and sorts newest notes first without inferring title relationships', async () => {
@@ -111,7 +112,7 @@ describe('four vault workflow board', () => {
         .map((b) => b.textContent),
     ).toEqual([expect.stringContaining('newer'), expect.stringContaining('older')]);
     await userEvent.click(within(column).getAllByRole('button', { name: /^选择 / })[0]);
-    expect(screen.getByText('尚无已确认下游')).toBeInTheDocument();
+    expect(screen.getAllByText('尚无已确认下游').length).toBeGreaterThan(0);
     expect(screen.getByText(/尚无已确认关联/)).toBeInTheDocument();
   });
   it('selects a card inside the board and writes only after confirmation, retaining the anchor', async () => {
@@ -324,5 +325,67 @@ describe('four vault workflow board', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('关联存储损坏'));
     expect(screen.getByRole('button', { name: /^关联此认知：/ })).toBeDisabled();
     expect(screen.getByRole('button', { name: '预览笔记' })).toBeEnabled();
+  });
+});
+
+describe('branching workflow interactions', () => {
+  it('keeps association controls out of browse mode', async () => {
+    setup();
+    await userEvent.click(screen.getByRole('button', { name: /^选择 echo/ }));
+    expect(screen.queryByRole('button', { name: /^关联此认知：/ })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: '关联笔记' }));
+    expect(await screen.findByRole('button', { name: /^关联此认知：/ })).toBeEnabled();
+  });
+  it('selects several Echo sources for one Main and saves them with one atomic command', async () => {
+    const second = note('echo', 'second');
+    const { gateway } = setup({ notes: [...notes, second] });
+    gateway.setWorkflowLinks = vi.fn().mockImplementation(async (requests) => ({
+      schemaVersion: 1,
+      links: requests.map((request: { link: WorkflowLink }) => request.link),
+    }));
+    await select('main');
+    const buttons = screen.getAllByRole('button', { name: /^关联来源灵感：/ });
+    await waitFor(() => expect(buttons[0]).toBeEnabled());
+    await userEvent.click(buttons[0]);
+    await userEvent.click(buttons[1]);
+    expect(screen.getByText('已选 2/50 条 · 统一确认')).toBeInTheDocument();
+    expect(gateway.setWorkflowLinks).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: '确认关联' }));
+    await waitFor(() => expect(gateway.setWorkflowLinks).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(gateway.setWorkflowLinks!).mock.calls[0][0]).toHaveLength(2);
+    expect(await screen.findByText('来源 2')).toBeInTheDocument();
+  });
+  it('shows all references and direct Echo sources together in related-only view', async () => {
+    const second = note('knowledge', 'second');
+    const direct = { ...edge, target: { vaultId: 'output', relativePath: 'output.md' } };
+    const refs: WorkflowLink[] = [notes[3], second].map((note) => ({
+      source: { vaultId: 'knowledge', relativePath: note.relativePath },
+      target: { vaultId: 'output', relativePath: 'output.md' },
+      kind: 'reference',
+    }));
+    setup({ notes: [...notes, second], relations: [direct, ...refs] });
+    await userEvent.click(screen.getByRole('button', { name: /^选择 output/ }));
+    await userEvent.click(screen.getByRole('button', { name: '只看相关笔记' }));
+    expect(screen.getByText('来源 1')).toBeInTheDocument();
+    expect(screen.getByText('参考资料 2')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /^选择 / })).toHaveLength(4);
+    expect(
+      within(screen.getByRole('region', { name: '参考资料关系' })).getAllByRole('listitem'),
+    ).toHaveLength(2);
+  });
+  it('labels automatic links separately and allows explicit confirmation as a source', async () => {
+    setup({
+      linkCandidates: [
+        {
+          owner: { vaultId: 'echo', relativePath: 'echo.md' },
+          raw: ['@output:output[[output.md]]'],
+          truncated: false,
+        },
+      ],
+    });
+    await select('output');
+    expect(screen.getByText('正文跨库链接')).toBeInTheDocument();
+    expect(screen.getByText('来源 0')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^关联来源灵感：/ })).toBeEnabled();
   });
 });

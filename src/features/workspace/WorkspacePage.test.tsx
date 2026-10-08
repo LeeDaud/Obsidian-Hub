@@ -1,8 +1,12 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { AppConfigV2, VaultRole } from '../../domain/vault';
-import type { WorkspaceSnapshot } from '../../domain/workspace';
+import type {
+  WorkspaceChangeNotice,
+  WorkspaceScopeUpdate,
+  WorkspaceSnapshot,
+} from '../../domain/workspace';
 import type { VaultGateway } from '../../services/vaultGateway';
 import { WorkspacePage } from './WorkspacePage';
 
@@ -116,6 +120,123 @@ function gateway(): VaultGateway {
 }
 
 describe('WorkspacePage', () => {
+  function listeningGateway() {
+    const api = gateway();
+    let notify!: (notice: WorkspaceChangeNotice) => void;
+    const stop = vi.fn().mockResolvedValue(undefined);
+    api.watchWorkspace = vi.fn().mockImplementation(async (callback) => {
+      notify = callback;
+      return stop;
+    });
+    api.refreshWorkspacePaths = vi.fn().mockResolvedValue([]);
+    return { api, stop, notify: (notice: WorkspaceChangeNotice) => act(() => notify(notice)) };
+  }
+  function patch(hash = 'changed-hash'): WorkspaceScopeUpdate {
+    return {
+      scope: { vaultId: 'echo', relativePath: 'Idea.md' },
+      notes: [{ ...snapshot.notes[0], contentHash: hash }],
+      tasks: [{ ...snapshot.tasks[0], text: 'Updated task', contentHash: hash }],
+      relations: [],
+      failedPaths: [],
+      status: snapshot.vaultStatuses[0],
+    };
+  }
+
+  it('updates externally changed tasks without a full scan and stops listening on unmount', async () => {
+    const watching = listeningGateway();
+    watching.api.refreshWorkspacePaths = vi.fn().mockResolvedValue([patch()]);
+    const rendered = render(
+      <WorkspacePage config={config} gateway={watching.api} onConfigChange={vi.fn()} />,
+    );
+    await screen.findByRole('checkbox', { name: '完成 Review idea' });
+    watching.notify({ changes: [{ vaultId: 'echo', relativePath: 'Idea.md' }], warningCodes: [] });
+    await screen.findByRole('checkbox', { name: '完成 Updated task' });
+    expect(watching.api.scanWorkspace).toHaveBeenCalledTimes(1);
+    rendered.unmount();
+    await waitFor(() => expect(watching.stop).toHaveBeenCalledTimes(1));
+  });
+
+  it('defers listener updates during task writes and reads the final file after success', async () => {
+    const user = userEvent.setup();
+    const watching = listeningGateway();
+    let finish!: (value: { vaultId: string; relativePath: string; contentHash: string }) => void;
+    watching.api.setWorkspaceTaskComplete = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const updated = patch();
+    updated.tasks[0].complete = true;
+    watching.api.refreshWorkspacePaths = vi.fn().mockResolvedValue([updated]);
+    render(<WorkspacePage config={config} gateway={watching.api} onConfigChange={vi.fn()} />);
+    const checkbox = await screen.findByRole('checkbox', { name: '完成 Review idea' });
+    await user.click(checkbox);
+    watching.notify({ changes: [{ vaultId: 'echo', relativePath: 'Idea.md' }], warningCodes: [] });
+    expect(watching.api.refreshWorkspacePaths).not.toHaveBeenCalled();
+    expect(checkbox).toBeChecked();
+    await act(async () =>
+      finish({ vaultId: 'echo', relativePath: 'Idea.md', contentHash: 'changed-hash' }),
+    );
+    expect(await screen.findByRole('checkbox', { name: '完成 Updated task' })).toBeChecked();
+    expect(watching.api.scanWorkspace).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the visible preview until refresh and disables stale workflow actions', async () => {
+    const user = userEvent.setup();
+    const watching = listeningGateway();
+    watching.api.refreshWorkspacePaths = vi.fn().mockResolvedValue([patch()]);
+    render(<WorkspacePage config={config} gateway={watching.api} onConfigChange={vi.fn()} />);
+    await user.click(await screen.findByRole('button', { name: '待处理灵感' }));
+    await user.click(await screen.findByRole('button', { name: 'Idea' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Idea' });
+    await within(dialog).findByRole('button', { name: '添加认知笔记' });
+    watching.notify({ changes: [{ vaultId: 'echo', relativePath: 'Idea.md' }], warningCodes: [] });
+    await within(dialog).findByText('笔记已有新版本，点击刷新后继续操作。');
+    expect(within(dialog).queryByRole('button', { name: '添加认知笔记' })).toBeNull();
+    expect(watching.api.readWorkspaceNote).toHaveBeenCalledTimes(1);
+    watching.api.readWorkspaceNote = vi.fn().mockResolvedValue({
+      vaultId: 'echo',
+      vaultName: 'echo',
+      relativePath: 'Idea.md',
+      content: '# New body',
+      contentHash: 'changed-hash',
+      changed: true,
+    });
+    // Keep the gateway method identity stable for the open preview's explicit reload.
+    await user.click(within(dialog).getByRole('button', { name: '刷新' }));
+    await within(dialog).findByRole('heading', { name: 'New body' });
+    expect(within(dialog).getByRole('button', { name: '添加认知笔记' })).toBeVisible();
+  });
+
+  it('shows removed preview state and preserves manual refresh after listener failure', async () => {
+    const user = userEvent.setup();
+    const watching = listeningGateway();
+    const removed = patch();
+    removed.notes = [];
+    removed.tasks = [];
+    watching.api.refreshWorkspacePaths = vi.fn().mockResolvedValue([removed]);
+    render(<WorkspacePage config={config} gateway={watching.api} onConfigChange={vi.fn()} />);
+    await user.click(await screen.findByRole('button', { name: '待处理灵感' }));
+    await user.click(await screen.findByRole('button', { name: 'Idea' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Idea' });
+    watching.notify({
+      changes: [{ vaultId: 'echo', relativePath: 'Idea.md' }],
+      warningCodes: ['WORKSPACE_WATCH_PARTIAL'],
+    });
+    await within(dialog).findByText('笔记已移动、删除或仓库离线，请关闭预览后刷新工作台。');
+    expect(within(dialog).getByRole('button', { name: '在 Obsidian 中打开' })).toBeDisabled();
+    expect(screen.getByText('部分仓库自动更新不可用，请手动刷新。')).toBeVisible();
+  });
+
+  it('falls back to a full manual refresh if watcher setup fails', async () => {
+    const watching = listeningGateway();
+    watching.api.watchWorkspace = vi.fn().mockRejectedValue(new Error('watch unavailable'));
+    render(<WorkspacePage config={config} gateway={watching.api} onConfigChange={vi.fn()} />);
+    await screen.findByRole('checkbox', { name: '完成 Review idea' });
+    expect(screen.getByText('部分仓库自动更新不可用，请手动刷新。')).toBeVisible();
+    expect(screen.getByRole('button', { name: '刷新' })).toBeEnabled();
+  });
   it('previews a note in Hub without executing HTML and opens Obsidian only on request', async () => {
     const user = userEvent.setup();
     const api = gateway();
@@ -133,6 +254,26 @@ describe('WorkspacePage', () => {
     expect(api.openWorkspaceNote).not.toHaveBeenCalled();
     await user.click(within(dialog).getByRole('button', { name: '在 Obsidian 中打开' }));
     expect(api.openWorkspaceNote).toHaveBeenCalledWith('echo', 'Idea.md');
+  });
+  it('requires successful Echo preview before direct Output creation', async () => {
+    const user = userEvent.setup();
+    const api = gateway();
+    render(<WorkspacePage config={config} gateway={api} onConfigChange={vi.fn()} />);
+    await user.click(await screen.findByRole('button', { name: '待处理灵感' }));
+    expect(screen.queryByRole('button', { name: '直接创建输出笔记' })).toBeNull();
+    await user.click(await screen.findByRole('button', { name: 'Idea' }));
+    const preview = await screen.findByRole('dialog', { name: 'Idea' });
+    await user.click(await within(preview).findByRole('button', { name: '直接创建输出笔记' }));
+    const create = await screen.findByRole('dialog', { name: '创建输出笔记' });
+    await user.click(within(create).getByRole('button', { name: '创建并打开' }));
+    await waitFor(() =>
+      expect(api.createWorkspaceNote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kind: 'output',
+          source: { vaultId: 'echo', relativePath: 'Idea.md', contentHash: 'source-hash' },
+        }),
+      ),
+    );
   });
   it('saves stage folders in workflow settings before creating notes', async () => {
     const user = userEvent.setup();

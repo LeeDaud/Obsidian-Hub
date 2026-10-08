@@ -8,6 +8,7 @@ import { MarkdownPreview } from './MarkdownPreview';
 
 export function NotePreviewDialog({
   note,
+  currentNote,
   gateway,
   onClose,
   onOpen,
@@ -15,6 +16,7 @@ export function NotePreviewDialog({
   actions,
 }: {
   note: WorkspaceNote;
+  currentNote?: WorkspaceNote | null;
   gateway: VaultGateway;
   onClose(): void;
   onOpen(): void;
@@ -25,6 +27,13 @@ export function NotePreviewDialog({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const generation = useRef(0);
+  const unavailable = currentNote === null;
+  const stale = !!(
+    preview &&
+    currentNote &&
+    currentNote.contentHash !== note.contentHash &&
+    currentNote.contentHash !== preview.contentHash
+  );
 
   const load = useCallback(async () => {
     if (!gateway.readWorkspaceNote) return;
@@ -72,6 +81,16 @@ export function NotePreviewDialog({
             {error}
           </p>
         )}
+        {unavailable && (
+          <p className="workspace-alert" role="alert">
+            笔记已移动、删除或仓库离线，请关闭预览后刷新工作台。
+          </p>
+        )}
+        {!unavailable && stale && (
+          <p className="workspace-message" role="status">
+            笔记已有新版本，点击刷新后继续操作。
+          </p>
+        )}
         {!loading && !error && (
           <article className="note-preview-content">
             {preview?.content.trim() ? (
@@ -82,11 +101,16 @@ export function NotePreviewDialog({
           </article>
         )}
         <footer>
-          {!loading && !error ? actions : null}
+          {!loading && !error && !stale && !unavailable ? actions : null}
           <button type="button" disabled={loading} onClick={() => void load()}>
             刷新
           </button>
-          <button type="button" className="workspace-primary" onClick={onOpen}>
+          <button
+            type="button"
+            className="workspace-primary"
+            disabled={unavailable}
+            onClick={onOpen}
+          >
             在 Obsidian 中打开
           </button>
         </footer>
